@@ -1,25 +1,45 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { Admin } from '../services/admin.auth.service';
 import { AdminAuthService } from '../services/admin.auth.service';
 
 export function useAdminAuth() {
   const [admin, setAdmin] = useState<Admin | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<boolean>(false);
+  
+  // Add a ref to track if we've already checked auth
+  const hasCheckedRef = useRef(false);
 
   const checkAuth = useCallback(async () => {
+    // Prevent multiple simultaneous checks
+    if (hasCheckedRef.current) return;
+    
+    hasCheckedRef.current = true;
+    
     try {
+      console.log('🔍 Checking authentication...');
       const adminData = await AdminAuthService.getCurrentAdmin();
-      setAdmin(adminData);
+      console.log('🔍 Auth check result:', adminData);
+      
+      if (adminData) {
+        setAdmin(adminData);
+      }
     } catch (error) {
       console.error('Auth check error:', error);
+    } finally {
+      setLoading(false);
     }
-  }, []); // Empty dependency is fine - checkAuth doesn't depend on any props/state
+  }, []);
 
   useEffect(() => {
     checkAuth();
-  }, [checkAuth]); // ✅ Added checkAuth to dependency array
+    
+    // Cleanup function to reset on unmount
+    return () => {
+      hasCheckedRef.current = false;
+    };
+  }, [checkAuth]);
 
   const login = useCallback(async (email: string, password: string) => {
     setLoading(true);
@@ -33,6 +53,7 @@ export function useAdminAuth() {
 
       console.log(`📥 useAdminAuth: Logging in as ${email}`);
       const result = await AdminAuthService.login({ email, password });
+      console.log('📥 useAdminAuth: Login result:', result);
 
       if (result.success && result.admin) {
         setAdmin(result.admin);
@@ -65,7 +86,9 @@ export function useAdminAuth() {
       };
     } finally {
       setLoading(false);
-    }
+      // Reset the ref on login attempt
+      hasCheckedRef.current = false;
+    } 
   }, []);
 
   const logout = useCallback(async () => {
@@ -90,6 +113,8 @@ export function useAdminAuth() {
       };
     } finally {
       setLoading(false);
+      // Reset the ref on logout
+      hasCheckedRef.current = false;
     }
   }, []);
 
@@ -97,6 +122,7 @@ export function useAdminAuth() {
     setLoading(false);
     setError(null);
     setAuthError(false);
+    hasCheckedRef.current = false;
   }, []);
 
   return {

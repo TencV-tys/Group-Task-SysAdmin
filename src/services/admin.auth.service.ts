@@ -41,7 +41,7 @@ class AdminAuthServiceClass {
         method: "POST",
         headers,
         body: JSON.stringify(data),
-        credentials: 'include'
+        credentials: 'include' // Important for cookies
       });
 
       const result = await response.json();
@@ -65,14 +65,45 @@ class AdminAuthServiceClass {
     }
   }
 
+  static async getCurrentAdmin(): Promise<Admin | null> {
+    try {
+      console.log("🔍 Getting current admin...");
+      
+      const response = await fetch(`${API_URL}/api/auth/admins/me`, {
+        method: "GET",
+        credentials: 'include', // Send cookies
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          console.log("🔍 Not authenticated");
+          return null; 
+        }
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log("🔍 Get current admin response:", result);
+      
+      return result.success ? result.admin : null;
+
+    } catch (error) {
+      console.error("Error getting current admin:", error);
+      return null;
+    }
+  }
+
   static async logout(): Promise<{ success: boolean; message: string }> {
     try {
-      const headers = await this.getHeaders();
-      
       const response = await fetch(`${API_URL}/api/auth/admins/logout`, {
         method: "POST",
-        headers,
-        credentials: 'include'
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
 
       const result = await response.json();
@@ -91,15 +122,6 @@ class AdminAuthServiceClass {
         success: false,
         message: errorMessage
       };
-    }
-  }
-
-  static async getCurrentAdmin(): Promise<Admin | null> {
-    try {
-      // You might want to add a /me endpoint
-      return null;
-    } catch {
-      return null;
     }
   }
 }

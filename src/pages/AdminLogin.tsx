@@ -1,21 +1,39 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '../hooks/useAdminAuth';
+import LoadingScreen from '../components/LoadingScreen';
 import './styles/AdminLogin.css';
 
 export default function AdminLoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
-  const { loading, error, authError, login, reset } = useAdminAuth();
+  const { loading, error, authError, login, reset, isAuthenticated } = useAdminAuth();
   const navigate = useNavigate();
+  
+  // Add a ref to prevent multiple redirects
+  const redirectingRef = useRef(false);
 
   useEffect(() => {
     if (authError) {
-      setTimeout(() => reset(), 3000);
+      const timer = setTimeout(() => reset(), 3000);
+      return () => clearTimeout(timer);
     }
   }, [authError, reset]);
+
+  // Handle authentication redirect
+  useEffect(() => {
+    console.log('🔍 AdminLogin - isAuthenticated:', isAuthenticated);
+    console.log('🔍 AdminLogin - loading:', loading);
+    
+    if (isAuthenticated && !redirectingRef.current) {
+      console.log('✅ Already authenticated, redirecting to dashboard');
+      redirectingRef.current = true;
+      navigate('/admin/dashboard', { replace: true });
+    }
+  }, [isAuthenticated, loading, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,12 +42,18 @@ export default function AdminLoginScreen() {
       return;
     }
 
-    const result = await login(email, password);
+    setIsSubmitting(true);
+    console.log('📤 Submitting login form...');
     
-    if (result.success) {
-      navigate('/admin/dashboard');
-    }
+    const result = await login(email, password);
+    console.log('📤 Login result:', result);
+    
+    setIsSubmitting(false);
   };
+
+  if (loading || isSubmitting) {
+    return <LoadingScreen message="Signing in..." fullScreen />;
+  }
 
   return (
     <div className="admin-login-container">
@@ -57,7 +81,7 @@ export default function AdminLoginScreen() {
               <span>{error}</span>
             </div>
           )} 
- 
+
           <div className="admin-input-group">
             <label>Email</label>
             <div className="admin-input-wrapper">
