@@ -1,10 +1,39 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App'
 import './index.css'
-import App from './App.tsx'
+import { library } from '@fortawesome/fontawesome-svg-core'
+import { 
+  faChartPie, 
+  faUsers, 
+  faComment, 
+  faBell, 
+  faSignOutAlt,
+  faBars,
+  faTimes,
+  faChevronLeft,
+  faChevronRight,
+  faCrown,
+  faExclamationCircle
+} from '@fortawesome/free-solid-svg-icons'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
+// Add icons to library
+library.add(
+  faChartPie,
+  faUsers,
+  faComment,
+  faBell,
+  faSignOutAlt,
+  faBars,
+  faTimes,
+  faChevronLeft,
+  faChevronRight,
+  faCrown,
+  faExclamationCircle
+)
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
     <App />
-  </StrictMode>,
+  </React.StrictMode>,
 )

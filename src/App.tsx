@@ -1,13 +1,14 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AdminLogin from './pages/AdminLogin';
+import Dashboard from './pages/Dashboard';
 import AdminLayout from './components/AdminLayout';
 import LoadingScreen from './components/LoadingScreen';
 import { useAdminAuth } from './hooks/useAdminAuth';
 import './App.css';
 
 // Placeholder components for now
-const Dashboard = () => <div>Dashboard Content</div>;
+
 const ManageUsers = () => <div>Manage Users Content</div>;
 const Feedback = () => <div>Feedback Content</div>;
 const Notifications = () => <div>Notifications Content</div>;

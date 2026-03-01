@@ -1,3 +1,9 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 .admin-sidebar {
   width: 260px;
   height: 100vh;
@@ -41,6 +47,8 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  color: white;
+  font-size: 20px;
 }
 
 .logo-text {
@@ -63,6 +71,7 @@
   cursor: pointer;
   transition: background 0.2s;
   flex-shrink: 0;
+  font-size: 14px;
 }
 
 .toggle-btn:hover {
@@ -133,6 +142,7 @@
   transition: all 0.2s;
   position: relative;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .nav-item:hover {
@@ -146,12 +156,13 @@
 }
 
 .nav-icon {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  font-size: 16px;
 }
 
 .nav-label {
@@ -195,6 +206,14 @@
 .logout-btn:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #fa5252;
+}
+
+/* Make sure icons in buttons are centered */
+.logout-btn .nav-icon,
+.nav-item .nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Modal Styles */
@@ -255,14 +274,21 @@
 .modal-close {
   background: none;
   border: none;
-  font-size: 24px;
+  font-size: 20px;
   color: #868e96;
   cursor: pointer;
   padding: 4px;
-  line-height: 1;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.2s;
 }
 
 .modal-close:hover {
+  background: #f1f3f5;
   color: #fa5252;
 }
 

@@ -1,33 +1,40 @@
+/* Admin Layout */
 .admin-layout {
   min-height: 100vh;
-  display: flex;
+  width: 100%;
+  display: block;
 }
 
+/* Sidebar is fixed, so main content needs left margin */
 .admin-main {
-  flex: 1;
-  margin-left: 260px;
-  transition: margin-left 0.3s ease;
+  margin-left: 260px; /* Same as sidebar width */
   background: #f8f9fa;
   min-height: 100vh;
+  width: calc(100% - 260px); /* Take remaining width */
+  transition: margin-left 0.3s ease, width 0.3s ease;
 }
 
+/* When sidebar is collapsed */
 .admin-main.expanded {
   margin-left: 80px;
+  width: calc(100% - 80px);
 }
 
+/* Content container */
 .admin-content {
-  padding: 24px;
-  max-width: 1600px;
-  margin: 0 auto;
+  width: 100%;
+  min-height: 100vh;
 }
 
 /* Responsive */
 @media (max-width: 768px) {
   .admin-main {
     margin-left: 80px;
+    width: calc(100% - 80px);
   }
   
   .admin-main.expanded {
     margin-left: 0;
+    width: 100%;
   }
 }
