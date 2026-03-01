@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '../hooks/useAdminAuth';
-import './AdminLoginScreen.css';
+import './styles/AdminLogin.css';
 
 export default function AdminLoginScreen() {
   const [email, setEmail] = useState('');
@@ -56,8 +56,8 @@ export default function AdminLoginScreen() {
               </svg>
               <span>{error}</span>
             </div>
-          )}
-
+          )} 
+ 
           <div className="admin-input-group">
             <label>Email</label>
             <div className="admin-input-wrapper">

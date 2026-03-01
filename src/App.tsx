@@ -1,6 +1,6 @@
 import React from 'react'; // ← Add this import!
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import AdminLoginScreen from './pages/AdminLoginScreen';
+import AdminLoginScreen from './pages/AdminLogin';
 //import AdminDashboard from './pages/AdminDashboard';
 import { useAdminAuth } from './hooks/useAdminAuth';
 import './App.css';

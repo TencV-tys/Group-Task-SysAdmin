@@ -1,0 +1,333 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.admin-login-container {
+  min-height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #2b8a3e 0%, #1e6b2c 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+
+/* Decorative background elements */
+.admin-login-container::before {
+  content: '';
+  position: absolute;
+  width: 2000px;
+  height: 2000px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%);
+  top: -1000px;
+  right: -500px;
+  transform: rotate(45deg);
+  z-index: 1;
+}
+
+.admin-login-container::after {
+  content: '';
+  position: absolute;
+  width: 1500px;
+  height: 1500px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%);
+  bottom: -800px;
+  left: -300px;
+  transform: rotate(-30deg);
+  z-index: 1;
+}
+
+.admin-login-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  width: 90%;
+  max-width: 440px;
+  padding: 48px 40px;
+  position: relative;
+  z-index: 10;
+  animation: slideUp 0.5s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-login-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.admin-logo {
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #2b8a3e 0%, #1e6b2c 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+  box-shadow: 0 10px 20px -5px rgba(43, 138, 62, 0.3);
+  transition: transform 0.2s;
+}
+
+.admin-logo:hover {
+  transform: scale(1.05);
+}
+
+.admin-logo svg {
+  width: 36px;
+  height: 36px;
+}
+
+.admin-login-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1a1f36;
+  margin: 0 0 8px;
+  letter-spacing: -0.5px;
+}
+
+.admin-login-subtitle {
+  font-size: 15px;
+  color: #6b7280;
+  margin: 0;
+  font-weight: 400;
+}
+
+.admin-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.admin-error-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: #fef2f2;
+  border: 1px solid #fee2e2;
+  border-radius: 12px;
+  color: #dc2626;
+  font-size: 14px;
+  font-weight: 500;
+  animation: shake 0.5s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+.admin-error-message svg {
+  flex-shrink: 0;
+}
+
+.admin-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-input-group label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin-left: 4px;
+  letter-spacing: 0.3px;
+}
+
+.admin-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.admin-input-wrapper svg {
+  position: absolute;
+  left: 16px;
+  width: 20px;
+  height: 20px;
+  stroke: #9ca3af;
+  transition: stroke 0.2s;
+}
+
+.admin-input-wrapper:focus-within svg {
+  stroke: #2b8a3e;
+}
+
+.admin-input-wrapper input {
+  width: 100%;
+  padding: 16px 48px 16px 52px;
+  border: 2px solid #e5e7eb;
+  border-radius: 14px;
+  font-size: 16px;
+  color: #1f2937;
+  background: white;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.admin-input-wrapper input::placeholder {
+  color: #9ca3af;
+  font-weight: 400;
+}
+
+.admin-input-wrapper input:hover {
+  border-color: #d1d5db;
+}
+
+.admin-input-wrapper input:focus {
+  outline: none;
+  border-color: #2b8a3e;
+  box-shadow: 0 0 0 4px rgba(43, 138, 62, 0.1);
+}
+
+.admin-input-wrapper input:disabled {
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.admin-password-toggle {
+  position: absolute;
+  right: 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 20px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  transition: color 0.2s;
+  border-radius: 8px;
+}
+
+.admin-password-toggle:hover {
+  color: #2b8a3e;
+  background: #f3f4f6;
+}
+
+.admin-password-toggle:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(43, 138, 62, 0.3);
+}
+
+.admin-login-button {
+  background: linear-gradient(135deg, #2b8a3e 0%, #1e6b2c 100%);
+  color: white;
+  border: none;
+  border-radius: 14px;
+  padding: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 8px;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 6px -1px rgba(43, 138, 62, 0.2);
+}
+
+.admin-login-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(43, 138, 62, 0.3);
+  background: linear-gradient(135deg, #2f9e44 0%, #2b8a3e 100%);
+}
+
+.admin-login-button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 4px 6px -1px rgba(43, 138, 62, 0.2);
+}
+
+.admin-login-button:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(43, 138, 62, 0.3);
+}
+
+.admin-login-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: linear-gradient(135deg, #9ca3af 0%, #6b7280 100%);
+  box-shadow: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .admin-login-card {
+    padding: 32px 24px;
+    max-width: 90%;
+  }
+
+  .admin-login-title {
+    font-size: 24px;
+  }
+
+  .admin-logo {
+    width: 64px;
+    height: 64px;
+  }
+
+  .admin-logo svg {
+    width: 32px;
+    height: 32px;
+  }
+
+  .admin-input-wrapper input {
+    padding: 14px 44px 14px 48px;
+    font-size: 15px;
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-login-card {
+    padding: 24px 20px;
+  }
+
+  .admin-login-title {
+    font-size: 22px;
+  }
+
+  .admin-login-subtitle {
+    font-size: 14px;
+  }
+
+  .admin-input-wrapper input {
+    padding: 12px 40px 12px 44px;
+  }
+
+  .admin-login-button {
+    padding: 14px;
+  }
+}
+
+/* Landscape mode adjustments */
+@media (max-height: 600px) and (orientation: landscape) {
+  .admin-login-container {
+    padding: 20px;
+    align-items: flex-start;
+    overflow-y: auto;
+  }
+
+  .admin-login-card {
+    margin: 20px auto;
+  }
+}
