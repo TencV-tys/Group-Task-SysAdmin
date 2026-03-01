@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AdminLogin from './pages/AdminLogin';
 import AdminLayout from './components/AdminLayout';
+import LoadingScreen from './components/LoadingScreen';
 import { useAdminAuth } from './hooks/useAdminAuth';
 import './App.css';
 
@@ -11,12 +12,11 @@ const ManageUsers = () => <div>Manage Users Content</div>;
 const Feedback = () => <div>Feedback Content</div>;
 const Notifications = () => <div>Notifications Content</div>;
 
-// FIXED: Use React.ReactNode instead of JSX.Element
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAdminAuth();
   
   if (loading) {
-    return <div className="loading-screen">Loading...</div>;
+    return <LoadingScreen message="Authenticating..." fullScreen />;
   }
   
   return isAuthenticated ? <>{children}</> : <Navigate to="/admin/login" />;

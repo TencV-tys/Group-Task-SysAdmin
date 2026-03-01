@@ -22,12 +22,46 @@ body {
   color: #868e96;
 }
 
-/* Placeholder component styling */
-div > div:only-child {
-  background: white;
-  border-radius: 16px;
+/* Dashboard content styles - these only apply inside the admin layout */
+.dashboard-container {
   padding: 24px;
+}
+
+.dashboard-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #212529;
+  margin-bottom: 8px;
+}
+
+.dashboard-subtitle {
+  font-size: 14px;
+  color: #868e96;
+  margin-bottom: 24px;
+}
+
+/* Card styles for dashboard */
+.stats-card {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-  font-size: 16px;
-  color: #495057;
+  border: 1px solid #e9ecef;
+}
+
+.stats-card:hover {
+  box-shadow: 0 8px 16px rgba(43, 138, 62, 0.1);
+}
+
+/* Primary color accents */
+.primary-text {
+  color: #2b8a3e;
+}
+
+.primary-bg {
+  background: #2b8a3e;
+}
+
+.primary-border {
+  border-color: #2b8a3e;
 }
