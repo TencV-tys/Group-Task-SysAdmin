@@ -7,8 +7,7 @@ interface FeedbackModalProps {
   onClose: () => void;
   feedback: FeedbackDetails | null;
   loading?: boolean;
-  onUpdateStatus: (status: string, notes?: string) => Promise<void>;
-  onAddReply: (reply: string) => Promise<void>;
+  onUpdateStatus: (status: string) => Promise<void>;
 }
 
 const FeedbackModal: React.FC<FeedbackModalProps> = ({
@@ -16,13 +15,10 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
   onClose,
   feedback,
   loading,
-  onUpdateStatus,
-  onAddReply
+  onUpdateStatus
 }) => {
-  const [replyText, setReplyText] = useState('');
-  const [adminNotes, setAdminNotes] = useState('');
-  const [showReplyForm, setShowReplyForm] = useState(false);
   const [showStatusForm, setShowStatusForm] = useState(false);
+  const [selectedStatus, setSelectedStatus] = useState('');
   const [updating, setUpdating] = useState(false);
 
   if (!isOpen || !feedback) return null;
@@ -60,24 +56,13 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
   };
 
   const handleStatusUpdate = async () => {
-    setUpdating(true);
-    await onUpdateStatus(
-      prompt('Enter new status (OPEN/IN_PROGRESS/RESOLVED/CLOSED):') || '',
-      adminNotes || undefined
-    );
-    setUpdating(false);
-    setShowStatusForm(false);
-    setAdminNotes('');
-  };
-
-  const handleAddReply = async () => {
-    if (!replyText.trim()) return;
+    if (!selectedStatus) return;
     
     setUpdating(true);
-    await onAddReply(replyText);
+    await onUpdateStatus(selectedStatus);
     setUpdating(false);
-    setReplyText('');
-    setShowReplyForm(false);
+    setShowStatusForm(false);
+    setSelectedStatus('');
   };
 
   if (loading) {
@@ -148,14 +133,6 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
             <span className="feedback-modal-date">Submitted: {formatDate(feedback.createdAt)}</span>
           </div>
 
-          {/* Admin Notes */}
-          {feedback.adminNotes && (
-            <div className="feedback-modal-notes">
-              <h4>Admin Notes</h4>
-              <p>{feedback.adminNotes}</p>
-            </div>
-          )}
-
           {/* Action Buttons */}
           <div className="feedback-modal-actions">
             <button
@@ -165,13 +142,6 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
             >
               Update Status
             </button>
-            <button
-              className="feedback-modal-btn feedback-modal-btn-reply"
-              onClick={() => setShowReplyForm(!showReplyForm)}
-              disabled={updating}
-            >
-              Add Reply
-            </button>
           </div>
 
           {/* Status Update Form */}
@@ -179,8 +149,8 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
             <div className="feedback-modal-form">
               <select
                 className="feedback-modal-select"
-                onChange={(e) => setAdminNotes(e.target.value)}
-                defaultValue=""
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
               >
                 <option value="" disabled>Select new status...</option>
                 <option value="OPEN">OPEN</option>
@@ -188,13 +158,6 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
                 <option value="RESOLVED">RESOLVED</option>
                 <option value="CLOSED">CLOSED</option>
               </select>
-              <textarea
-                className="feedback-modal-textarea"
-                placeholder="Add admin notes (optional)..."
-                value={adminNotes}
-                onChange={(e) => setAdminNotes(e.target.value)}
-                rows={3}
-              />
               <div className="feedback-modal-form-actions">
                 <button
                   className="feedback-modal-btn feedback-modal-btn-cancel"
@@ -205,37 +168,9 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
                 <button
                   className="feedback-modal-btn feedback-modal-btn-save"
                   onClick={handleStatusUpdate}
-                  disabled={updating}
+                  disabled={!selectedStatus || updating}
                 >
                   Update
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Reply Form */}
-          {showReplyForm && (
-            <div className="feedback-modal-form">
-              <textarea
-                className="feedback-modal-textarea"
-                placeholder="Type your reply..."
-                value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-                rows={4}
-              />
-              <div className="feedback-modal-form-actions">
-                <button
-                  className="feedback-modal-btn feedback-modal-btn-cancel"
-                  onClick={() => setShowReplyForm(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="feedback-modal-btn feedback-modal-btn-save"
-                  onClick={handleAddReply}
-                  disabled={!replyText.trim() || updating}
-                >
-                  Send Reply
                 </button>
               </div>
             </div>

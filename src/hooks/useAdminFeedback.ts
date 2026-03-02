@@ -75,12 +75,12 @@ export function useAdminFeedback() {
     }
   }, []);
 
-  const updateStatus = useCallback(async (feedbackId: string, status: string, adminNotes?: string) => {
+  const updateStatus = useCallback(async (feedbackId: string, status: string) => {
     setLoading(true);
     setError(null);
 
     try {
-      const result = await AdminFeedbackService.updateFeedbackStatus(feedbackId, status, adminNotes);
+      const result = await AdminFeedbackService.updateFeedbackStatus(feedbackId, status);
       
       if (result.success) {
         // Refresh the list
@@ -100,27 +100,7 @@ export function useAdminFeedback() {
     }
   }, [pagination.page, pagination.limit, fetchFeedback, fetchStats]);
 
-  const addReply = useCallback(async (feedbackId: string, reply: string) => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const result = await AdminFeedbackService.addAdminReply(feedbackId, reply);
-      
-      if (result.success) {
-        return { success: true, data: result.data };
-      } else {
-        setError(result.message || 'Failed to add reply');
-        return { success: false, message: result.message };
-      }
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to add reply';
-      setError(errorMessage);
-      return { success: false, message: errorMessage };
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // ========== REMOVED addReply ==========
 
   const deleteFeedback = useCallback(async (feedbackId: string) => {
     setLoading(true);
@@ -169,7 +149,6 @@ export function useAdminFeedback() {
     fetchStats,
     getFeedbackDetails,
     updateStatus,
-    addReply,
     deleteFeedback,
     reset
   };

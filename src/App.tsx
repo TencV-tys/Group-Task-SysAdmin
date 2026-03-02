@@ -4,6 +4,7 @@ import AdminLogin from './pages/AdminLogin';
 import Dashboard from './pages/Dashboard';
 import Users from './pages/Users';
 import Feedback from './pages/Feedback';
+import Notifications from './pages/Notifications';
 
 import AdminLayout from './components/AdminLayout';
 import LoadingScreen from './components/LoadingScreen';
@@ -14,7 +15,6 @@ import './App.css';
 
 
 
-const Notifications = () => <div>Notifications Content</div>;
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAdminAuth();
@@ -29,7 +29,7 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <BrowserRouter>
-      <Routes>
+      <Routes> 
         <Route path="/admin/login" element={<AdminLogin />} />
         
         <Route path="/admin" element={

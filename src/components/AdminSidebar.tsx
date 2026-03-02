@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
@@ -7,14 +7,13 @@ import {
   faComment, 
   faBell, 
   faSignOutAlt,
-
   faTimes,
   faChevronLeft,
   faChevronRight,
   faCrown,
-
 } from '@fortawesome/free-solid-svg-icons';
 import { useAdminAuth } from '../hooks/useAdminAuth';
+import { AdminFeedbackService } from '../services/admin.feedback.service';
 import './styles/AdminSidebar.css';
 
 interface SidebarProps {
@@ -27,6 +26,42 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   const navigate = useNavigate();
   const { admin, logout } = useAdminAuth();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [feedbackCount, setFeedbackCount] = useState<number>(0);
+  const [notificationCount, setNotificationCount] = useState<number>(0);
+  const [loading, setLoading] = useState(false);
+
+  // ✅ FIXED: Wrap fetchCounts in useCallback
+  const fetchCounts = useCallback(async () => {
+    if (loading) return;
+    
+    setLoading(true);
+    try {
+      // Fetch feedback stats
+      const statsResult = await AdminFeedbackService.getFeedbackStats();
+      if (statsResult.success && statsResult.data) {
+        // Count open and in-progress feedback
+        const openCount = (statsResult.data.open || 0) + (statsResult.data.inProgress || 0);
+        setFeedbackCount(openCount);
+      }
+
+      // TODO: Add notifications count when available
+      // For now, using mock data
+      setNotificationCount(12);
+      
+    } catch (error) {
+      console.error('Failed to fetch counts:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [loading]); // ✅ Add loading to dependencies
+
+  // ✅ FIXED: Add fetchCounts to dependency array
+  useEffect(() => {
+    fetchCounts();
+    
+    const interval = setInterval(fetchCounts, 30000);
+    return () => clearInterval(interval);
+  }, [fetchCounts]); // ✅ Now includes fetchCounts
 
   const isActive = (path: string) => {
     return location.pathname.startsWith(path);
@@ -54,13 +89,13 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       path: '/admin/feedback',
       icon: faComment,
       label: 'Feedback',
-      badge: '3'
+      badge: feedbackCount > 0 ? feedbackCount.toString() : null
     },
     {
       path: '/admin/notifications',
       icon: faBell,
       label: 'Notifications',
-      badge: '12'
+      badge: notificationCount > 0 ? notificationCount.toString() : null
     }
   ];
 
@@ -138,7 +173,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
               </button>
               <button className="modal-confirm" onClick={handleLogout}>
                 Logout
-              </button>  faExclamationCircle
+              </button> 
             </div>
           </div>
         </div>

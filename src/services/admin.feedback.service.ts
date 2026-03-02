@@ -13,7 +13,6 @@ export interface Feedback {
   message: string;
   status: string;
   category?: string | null;
-  adminNotes?: string | null;
   createdAt: string;
   updatedAt: string;
   user: FeedbackUser;
@@ -169,15 +168,14 @@ class AdminFeedbackServiceClass {
   // ========== UPDATE FEEDBACK STATUS ==========
   static async updateFeedbackStatus(
     feedbackId: string, 
-    status: string, 
-    adminNotes?: string
+    status: string
   ): Promise<FeedbackDetailsResponse> {
     try {
       const response = await fetch(`${API_URL}/api/admin/feedback/${feedbackId}/status`, {
         method: 'PATCH',
         credentials: 'include',
         headers: await this.getHeaders(),
-        body: JSON.stringify({ status, adminNotes })
+        body: JSON.stringify({ status }) // Removed adminNotes
       });
 
       const result = await response.json();
@@ -190,33 +188,6 @@ class AdminFeedbackServiceClass {
       return {
         success: false,
         message: 'Failed to update feedback status'
-      };
-    }
-  }
-
-  // ========== ADD ADMIN REPLY ==========
-  static async addAdminReply(
-    feedbackId: string, 
-    reply: string
-  ): Promise<FeedbackDetailsResponse> {
-    try {
-      const response = await fetch(`${API_URL}/api/admin/feedback/${feedbackId}/reply`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: await this.getHeaders(),
-        body: JSON.stringify({ reply })
-      });
-
-      const result = await response.json();
-      console.log('📦 Add reply response:', result);
-      
-      return result;
-
-    } catch (error) {
-      console.error('❌ Error adding reply:', error);
-      return {
-        success: false,
-        message: 'Failed to add reply'
       };
     }
   }
