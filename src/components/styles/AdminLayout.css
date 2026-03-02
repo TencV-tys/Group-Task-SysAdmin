@@ -16,8 +16,8 @@
 
 /* When sidebar is collapsed */
 .admin-main.expanded {
-  margin-left: 80px;
-  width: calc(100% - 80px);
+  margin-left: 80px; /* Same as collapsed sidebar width */
+  width: calc(100% - 80px); /* Adjust width to fill remaining space */
 }
 
 /* Content container */

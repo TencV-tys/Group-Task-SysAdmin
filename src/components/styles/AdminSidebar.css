@@ -23,12 +23,64 @@
   width: 80px;
 }
 
+/* When collapsed, center all items */
+.admin-sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 12px 0;
+}
+
+.admin-sidebar.collapsed .nav-icon {
+  margin: 0 auto;
+  width: 24px;
+  height: 24px;
+}
+
+.admin-sidebar.collapsed .nav-label,
+.admin-sidebar.collapsed .nav-badge,
+.admin-sidebar.collapsed .profile-info,
+.admin-sidebar.collapsed .logo-text {
+  display: none;
+}
+
+.admin-sidebar.collapsed .admin-profile {
+  justify-content: center;
+  padding: 20px 0;
+}
+
+.admin-sidebar.collapsed .profile-avatar {
+  margin: 0 auto;
+}
+
+.admin-sidebar.collapsed .sidebar-header {
+  justify-content: center;
+  padding: 20px 0;
+}
+
+.admin-sidebar.collapsed .logo-container {
+  justify-content: center;
+  width: 100%;
+}
+
+.admin-sidebar.collapsed .toggle-btn {
+  position: absolute;
+  right: -12px;
+  top: 20px;
+  background: #2b8a3e;
+  border: 2px solid white;
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  z-index: 1001;
+}
+
+/* Normal styles */
 .sidebar-header {
   padding: 20px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  position: relative;
 }
 
 .logo-container {
@@ -358,4 +410,45 @@
 
 .sidebar-nav::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
+}
+
+/* Admin Layout */
+.admin-layout {
+  min-height: 100vh;
+  width: 100%;
+  display: block;
+}
+
+/* Sidebar is fixed, so main content needs left margin */
+.admin-main {
+  margin-left: 260px;
+  background: #f8f9fa;
+  min-height: 100vh;
+  width: calc(100% - 260px);
+  transition: margin-left 0.3s ease, width 0.3s ease;
+}
+
+/* When sidebar is collapsed */
+.admin-main.expanded {
+  margin-left: 80px;
+  width: calc(100% - 80px);
+}
+
+/* Content container */
+.admin-content {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .admin-main {
+    margin-left: 80px;
+    width: calc(100% - 80px);
+  }
+  
+  .admin-main.expanded {
+    margin-left: 0;
+    width: 100%;
+  }
 }
