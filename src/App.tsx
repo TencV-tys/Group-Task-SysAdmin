@@ -2,6 +2,9 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AdminLogin from './pages/AdminLogin';
 import Dashboard from './pages/Dashboard';
+import Users from './pages/Users';
+import Feedback from './pages/Feedback';
+
 import AdminLayout from './components/AdminLayout';
 import LoadingScreen from './components/LoadingScreen';
 import { useAdminAuth } from './hooks/useAdminAuth';
@@ -9,8 +12,8 @@ import './App.css';
 
 // Placeholder components for now
 
-const ManageUsers = () => <div>Manage Users Content</div>;
-const Feedback = () => <div>Feedback Content</div>;
+
+
 const Notifications = () => <div>Notifications Content</div>;
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -36,7 +39,7 @@ function App() {
         }>
           <Route index element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
-          <Route path="users" element={<ManageUsers />} />
+          <Route path="users" element={<Users />} />
           <Route path="feedback" element={<Feedback />} />
           <Route path="notifications" element={<Notifications />} />
         </Route>
