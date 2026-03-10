@@ -1,10 +1,12 @@
-import  { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom'; // Add this import
 import { useAdminNotifications } from '../hooks/useAdminNotifications';
 import LoadingScreen from '../components/LoadingScreen';
 import ErrorDisplay from '../components/ErrorDisplay';
 import './styles/Notifications.css';
 
 const Notifications = () => {
+  const navigate = useNavigate(); // Add this hook
   const {
     notifications,
     loading,
@@ -89,6 +91,29 @@ const Notifications = () => {
     }
   };
 
+  const handleNotificationClick = async (notification: any) => {
+    // Mark as read first
+    if (!notification.read) {
+      await markAsRead(notification.id);
+    }
+
+    // Navigate based on notification type using React Router
+    const { type, data } = notification;
+    
+    if (type === 'FEEDBACK_SUBMITTED' && data?.feedbackId) {
+      navigate(`/admin/feedback?id=${data.feedbackId}`);
+    } else if (type === 'USER_REGISTERED' && data?.userId) {
+      navigate(`/admin/users?id=${data.userId}`);
+    } else if (type === 'REPORT_SUBMITTED' && data?.reportId) {
+      navigate(`/admin/reports?id=${data.reportId}`);
+    } else if (type === 'SYSTEM_ALERT') {
+      navigate('/admin/dashboard');
+    } else {
+      // Default fallback
+      navigate(`/admin/notifications?id=${notification.id}`);
+    }
+  };
+
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -121,6 +146,29 @@ const Notifications = () => {
       case 'SYSTEM_ALERT': return '⚠️';
       default: return '📌';
     }
+  };
+
+  // Helper to get a short preview of data without JSON
+  const getDataPreview = (data: any) => {
+    if (!data) return null;
+    
+    // For feedback notifications
+    if (data.feedbackId) {
+      return `Feedback ID: ${data.feedbackId.substring(0, 8)}...`;
+    }
+    
+    // For user registered
+    if (data.userId && data.userName) {
+      return `User: ${data.userName}`;
+    }
+    
+    // For reports
+    if (data.reportId) {
+      return `Report ID: ${data.reportId.substring(0, 8)}...`;
+    }
+    
+    // For any other type, just show a generic preview
+    return 'Click to view details';
   };
 
   if (loading && notifications.length === 0) {
@@ -224,62 +272,69 @@ const Notifications = () => {
 
             {/* Notifications List */}
             <div className="notifications-list">
-              {notifications.map((notification) => (
-                <div
-                  key={notification.id}
-                  className={`notifications-item ${!notification.read ? 'unread' : ''}`}
-                >
-                  <div className="notifications-item-left">
-                    <label className="notifications-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.includes(notification.id)}
-                        onChange={() => handleSelect(notification.id)}
-                      />
-                    </label>
-                    <span className="notifications-priority">
-                      {getPriorityIcon(notification.priority)}
-                    </span>
-                    <span className="notifications-icon">
-                      {getTypeIcon(notification.type)}
-                    </span>
-                  </div>
-                  
-                  <div className="notifications-item-content">
-                    <div className="notifications-item-header">
-                      <h3 className="notifications-item-title">{notification.title}</h3>
-                      <span className="notifications-item-time">
-                        {formatDate(notification.createdAt)}
+              {notifications.map((notification) => {
+                const dataPreview = getDataPreview(notification.data);
+                
+                return (
+                  <div
+                    key={notification.id}
+                    className={`notifications-item ${!notification.read ? 'unread' : ''} clickable`}
+                    onClick={() => handleNotificationClick(notification)}
+                  >
+                    <div className="notifications-item-left" onClick={(e) => e.stopPropagation()}>
+                      <label className="notifications-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(notification.id)}
+                          onChange={() => handleSelect(notification.id)}
+                        />
+                      </label>
+                      <span className="notifications-priority">
+                        {getPriorityIcon(notification.priority)}
+                      </span>
+                      <span className="notifications-icon">
+                        {getTypeIcon(notification.type)}
                       </span>
                     </div>
-                    <p className="notifications-item-message">{notification.message}</p>
-                    {notification.data && (
-                      <div className="notifications-item-data">
-                        <pre>{JSON.stringify(notification.data, null, 2)}</pre>
+                    
+                    <div className="notifications-item-content">
+                      <div className="notifications-item-header">
+                        <h3 className="notifications-item-title">{notification.title}</h3>
+                        <span className="notifications-item-time">
+                          {formatDate(notification.createdAt)}
+                        </span>
                       </div>
-                    )}
-                  </div>
+                      <p className="notifications-item-message">{notification.message}</p>
+                      
+                      {/* Simple data preview instead of JSON */}
+                      {dataPreview && (
+                        <div className="notifications-item-preview">
+                          <span className="notifications-preview-text">{dataPreview}</span>
+                        </div>
+                      )}
+                    </div>
 
-                  <div className="notifications-item-actions">
-                    {!notification.read && (
+                    <div className="notifications-item-actions" onClick={(e) => e.stopPropagation()}>
+                      {!notification.read && (
+                        <button
+                          className="notifications-item-btn"
+                          onClick={() => handleMarkAsRead(notification.id)}
+                          title="Mark as read"
+                        >
+                          ✓
+                        </button>
+                      )}
                       <button
-                        className="notifications-item-btn"
-                        onClick={() => handleMarkAsRead(notification.id)}
-                        title="Mark as read"
+                        className="notifications-item-btn delete"
+                        onClick={() => handleDelete(notification.id)}
+                        title="Delete"
                       >
-                        ✓
+                        ×
                       </button>
-                    )}
-                    <button
-                      className="notifications-item-btn delete"
-                      onClick={() => handleDelete(notification.id)}
-                      title="Delete"
-                    >
-                      ×
-                    </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Pagination */}

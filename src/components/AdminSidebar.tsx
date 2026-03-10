@@ -14,6 +14,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { useAdminAuth } from '../hooks/useAdminAuth';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
+import { AdminNotificationsService } from '../services/admin.notifications.service';
 import './styles/AdminSidebar.css';
 
 interface SidebarProps {
@@ -30,7 +31,6 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   const [notificationCount, setNotificationCount] = useState<number>(0);
   const [loading, setLoading] = useState(false);
 
-  // ✅ FIXED: Wrap fetchCounts in useCallback
   const fetchCounts = useCallback(async () => {
     if (loading) return;
     
@@ -44,24 +44,38 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
         setFeedbackCount(openCount);
       }
 
-      // TODO: Add notifications count when available
-      // For now, using mock data
-      setNotificationCount(12);
+      // ✅ FETCH REAL NOTIFICATION UNREAD COUNT
+      const unreadResult = await AdminNotificationsService.getUnreadCount();
+      if (unreadResult.success && unreadResult.data) {
+        setNotificationCount(unreadResult.data.count);
+      }
       
     } catch (error) {
       console.error('Failed to fetch counts:', error);
     } finally {
       setLoading(false);
     }
-  }, [loading]); // ✅ Add loading to dependencies
+  }, [loading]);
 
-  // ✅ FIXED: Add fetchCounts to dependency array
   useEffect(() => {
     fetchCounts();
     
+    // Refresh every 30 seconds
     const interval = setInterval(fetchCounts, 30000);
     return () => clearInterval(interval);
-  }, [fetchCounts]); // ✅ Now includes fetchCounts
+  }, [fetchCounts]);
+
+  // Listen for storage events (for multi-tab sync)
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'notification-updated' || e.key === 'feedback-updated') {
+        fetchCounts();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [fetchCounts]);
 
   const isActive = (path: string) => {
     return location.pathname.startsWith(path);
@@ -89,13 +103,13 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       path: '/admin/feedback',
       icon: faComment,
       label: 'Feedback',
-      badge: feedbackCount > 0 ? feedbackCount.toString() : null
+      badge: feedbackCount > 0 ? (feedbackCount > 99 ? '99+' : feedbackCount.toString()) : null
     },
     {
       path: '/admin/notifications',
       icon: faBell,
       label: 'Notifications',
-      badge: notificationCount > 0 ? notificationCount.toString() : null
+      badge: notificationCount > 0 ? (notificationCount > 99 ? '99+' : notificationCount.toString()) : null
     }
   ];
 

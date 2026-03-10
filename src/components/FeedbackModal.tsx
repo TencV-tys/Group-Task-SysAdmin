@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { FeedbackDetails } from '../services/admin.feedback.service';
 import './styles/FeedbackModal.css';
 
@@ -8,6 +8,7 @@ interface FeedbackModalProps {
   feedback: FeedbackDetails | null;
   loading?: boolean;
   onUpdateStatus: (status: string) => Promise<void>;
+  nextStatusOptions?: string[];
 }
 
 const FeedbackModal: React.FC<FeedbackModalProps> = ({
@@ -15,11 +16,22 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
   onClose,
   feedback,
   loading,
-  onUpdateStatus
+  onUpdateStatus,
+  nextStatusOptions = []
 }) => {
   const [showStatusForm, setShowStatusForm] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('');
   const [updating, setUpdating] = useState(false);
+
+  // Reset form when feedback changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowStatusForm(false);
+      setSelectedStatus('');
+    }, 0);
+    
+    return () => clearTimeout(timer);
+  }, [feedback?.id]);
 
   if (!isOpen || !feedback) return null;
 
@@ -43,6 +55,10 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
     }
   };
 
+  const getStatusDisplay = (status: string) => {
+    return status.replace('_', ' ');
+  };
+
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'BUG': return '🐛';
@@ -64,6 +80,11 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
     setShowStatusForm(false);
     setSelectedStatus('');
   };
+
+  // Filter out the current status from options
+  const availableOptions = nextStatusOptions.filter(
+    status => status !== feedback.status
+  );
 
   if (loading) {
     return (
@@ -114,10 +135,10 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
           {/* Status Badges */}
           <div className="feedback-modal-badges">
             <span className={`feedback-modal-badge ${getStatusColor(feedback.status)}`}>
-              {feedback.status}
+              {getStatusDisplay(feedback.status)}
             </span>
             <span className="feedback-modal-badge feedback-modal-type">
-              {feedback.type.replace('_', ' ')}
+              {getStatusDisplay(feedback.type)}
             </span>
             {feedback.category && (
               <span className="feedback-modal-badge feedback-modal-category">
@@ -131,6 +152,9 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
             <h4>Message</h4>
             <p>{feedback.message}</p>
             <span className="feedback-modal-date">Submitted: {formatDate(feedback.createdAt)}</span>
+            {feedback.updatedAt !== feedback.createdAt && (
+              <span className="feedback-modal-date">Updated: {formatDate(feedback.updatedAt)}</span>
+            )}
           </div>
 
           {/* Action Buttons */}
@@ -144,20 +168,29 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
             </button>
           </div>
 
-          {/* Status Update Form */}
+          {/* Status Update Form - Only show valid next statuses */}
           {showStatusForm && (
             <div className="feedback-modal-form">
+              <p className="feedback-modal-form-hint">
+                Current status: <strong>{getStatusDisplay(feedback.status)}</strong>
+              </p>
               <select
                 className="feedback-modal-select"
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value)}
               >
                 <option value="" disabled>Select new status...</option>
-                <option value="OPEN">OPEN</option>
-                <option value="IN_PROGRESS">IN PROGRESS</option>
-                <option value="RESOLVED">RESOLVED</option>
-                <option value="CLOSED">CLOSED</option>
+                {availableOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {getStatusDisplay(status)}
+                  </option>
+                ))}
               </select>
+              {availableOptions.length === 0 && (
+                <p className="feedback-modal-form-warning">
+                  No valid status transitions available
+                </p>
+              )}
               <div className="feedback-modal-form-actions">
                 <button
                   className="feedback-modal-btn feedback-modal-btn-cancel"
@@ -170,9 +203,16 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
                   onClick={handleStatusUpdate}
                   disabled={!selectedStatus || updating}
                 >
-                  Update
+                  {updating ? 'Updating...' : 'Update'}
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Update History Note */}
+          {feedback.updatedAt !== feedback.createdAt && (
+            <div className="feedback-modal-history-note">
+              <small>Last updated: {formatDate(feedback.updatedAt)}</small>
             </div>
           )}
         </div>

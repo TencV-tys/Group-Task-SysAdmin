@@ -24,6 +24,7 @@ const Feedback = () => {
   const [selectedFeedback, setSelectedFeedback] = useState<FeedbackDetails | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchFeedback({ 
@@ -59,18 +60,32 @@ const Feedback = () => {
   };
 
   const handleViewFeedback = async (feedbackId: string) => {
+    setSelectedRowId(feedbackId);
     setModalLoading(true);
-    setShowModal(true);
+    setShowModal(true); // Open modal FIRST
 
-    const result = await getFeedbackDetails(feedbackId);
-    
-    if (result.success && result.data) {
-      setSelectedFeedback(result.data);
-    } else {
+    try {
+      const result = await getFeedbackDetails(feedbackId);
+      
+      if (result.success && result.data) {
+        setSelectedFeedback(result.data);
+      } else {
+        // If failed, close modal
+        setShowModal(false);
+        setSelectedFeedback(null);
+      }
+    } catch (error) {
+      console.error('Error loading feedback:', error);
       setShowModal(false);
+      setSelectedFeedback(null);
+    } finally {
+      setModalLoading(false);
+      setSelectedRowId(null);
     }
-    
-    setModalLoading(false);
+  };
+
+  const handleRowClick = (feedbackId: string) => {
+    handleViewFeedback(feedbackId);
   };
 
   const handleUpdateStatus = async (status: string) => {
@@ -78,13 +93,28 @@ const Feedback = () => {
     
     const result = await updateStatus(selectedFeedback.id, status);
     if (result.success) {
-      setSelectedFeedback(result.data || null);
+      // Update the selected feedback with new data
+      if (result.data) {
+        setSelectedFeedback(result.data);
+      }
+      
+      // Refresh the list
+      fetchFeedback({ 
+        page: pagination.page, 
+        limit: pagination.limit,
+        status: statusFilter || undefined
+      });
+      
+      alert(`Feedback status updated to ${status} successfully!`);
     }
   };
 
   const closeModal = () => {
     setShowModal(false);
-    setSelectedFeedback(null);
+    // Clear selected feedback after animation
+    setTimeout(() => {
+      setSelectedFeedback(null);
+    }, 300);
   };
 
   const formatDate = (dateString: string) => {
@@ -126,6 +156,29 @@ const Feedback = () => {
       default: return '';
     }
   };
+
+ const getNextStatusOptions = (currentStatus: string): string[] => {
+  switch (currentStatus) {
+    case 'OPEN':
+      // Open can go to IN_PROGRESS, RESOLVED, or CLOSED
+      return ['IN_PROGRESS', 'RESOLVED', 'CLOSED'];
+    
+    case 'IN_PROGRESS':
+      // In Progress can ONLY go to RESOLVED
+      return ['RESOLVED'];
+    
+    case 'RESOLVED':
+      // Resolved can ONLY go to CLOSED
+      return ['CLOSED'];
+    
+    case 'CLOSED':
+      // Closed is final - no further updates
+      return [];
+    
+    default:
+      return [];
+  }
+};
 
   const clearFilters = () => {
     setSearchTerm('');
@@ -271,7 +324,12 @@ const Feedback = () => {
                 </thead>
                 <tbody>
                   {feedback.map((item) => (
-                    <tr key={item.id}>
+                    <tr 
+                      key={item.id} 
+                      onClick={() => handleRowClick(item.id)}
+                      className={`feedback-row ${selectedRowId === item.id ? 'selected' : ''}`}
+                      style={{ cursor: 'pointer' }}
+                    >
                       <td>
                         <div className="feedback-user-info">
                           <div className="feedback-user-avatar">
@@ -295,7 +353,9 @@ const Feedback = () => {
                       </td>
                       <td>
                         <div className="feedback-message-preview" title={item.message}>
-                          {item.message}
+                          {item.message.length > 50 
+                            ? `${item.message.substring(0, 50)}...` 
+                            : item.message}
                         </div>
                       </td>
                       <td>{item.category || '-'}</td>
@@ -305,10 +365,13 @@ const Feedback = () => {
                         </span>
                       </td>
                       <td>{formatDate(item.createdAt)}</td>
-                      <td>
+                      <td onClick={(e) => e.stopPropagation()}>
                         <button
                           className="feedback-view-btn"
-                          onClick={() => handleViewFeedback(item.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewFeedback(item.id);
+                          }}
                         >
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <circle cx="12" cy="12" r="3" />
@@ -350,13 +413,16 @@ const Feedback = () => {
       </div>
 
       {/* Feedback Modal */}
-      <FeedbackModal
-        isOpen={showModal}
-        onClose={closeModal}
-        feedback={selectedFeedback}
-        loading={modalLoading}
-        onUpdateStatus={handleUpdateStatus}
-      />
+      {showModal && (
+        <FeedbackModal
+          isOpen={showModal}
+          onClose={closeModal}
+          feedback={selectedFeedback}
+          loading={modalLoading}
+          onUpdateStatus={handleUpdateStatus}
+          nextStatusOptions={selectedFeedback ? getNextStatusOptions(selectedFeedback.status) : []}
+        />
+      )}
     </div>
   );
 };
