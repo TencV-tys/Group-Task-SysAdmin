@@ -5,16 +5,12 @@ import Dashboard from './pages/Dashboard';
 import Users from './pages/Users';
 import Feedback from './pages/Feedback';
 import Notifications from './pages/Notifications';
+import Reports from './pages/Reports'; // 👈 ADD THIS
 
 import AdminLayout from './components/AdminLayout';
 import LoadingScreen from './components/LoadingScreen';
 import { useAdminAuth } from './hooks/useAdminAuth';
 import './App.css';
-
-// Placeholder components for now
-
-
-
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAdminAuth();
@@ -42,6 +38,7 @@ function App() {
           <Route path="users" element={<Users />} />
           <Route path="feedback" element={<Feedback />} />
           <Route path="notifications" element={<Notifications />} />
+          <Route path="reports" element={<Reports />} /> {/* 👈 ADD THIS */}
         </Route>
         
         <Route path="/" element={<Navigate to="/admin/dashboard" />} />
