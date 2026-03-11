@@ -68,8 +68,8 @@
 }
 
 .groups-export-btn:hover {
-  background: #4263eb;
-  border-color: #4263eb;
+  background: #2b8a3e;
+  border-color: #2b8a3e;
   color: white;
 }
 
@@ -105,7 +105,7 @@
 
 .groups-export-options button:hover {
   background: #f1f3f5;
-  color: #4263eb;
+  color: #2b8a3e;
 }
 
 .groups-export-options button:first-child {
@@ -141,7 +141,7 @@
   display: block;
   font-size: 28px;
   font-weight: 700;
-  color: #4263eb;
+  color: #2b8a3e;
   margin-bottom: 4px;
 }
 
@@ -177,8 +177,8 @@
 }
 
 .groups-search-wrapper:focus-within {
-  border-color: #4263eb;
-  box-shadow: 0 0 0 3px rgba(66, 99, 235, 0.1);
+  border-color: #2b8a3e;
+  box-shadow: 0 0 0 3px rgba(43, 138, 62, 0.1);
 }
 
 .groups-search-icon {
@@ -198,7 +198,7 @@
 
 .groups-search-btn {
   padding: 12px 24px;
-  background: #4263eb;
+  background: #2b8a3e;
   color: white;
   border: none;
   font-size: 14px;
@@ -208,7 +208,7 @@
 }
 
 .groups-search-btn:hover {
-  background: #364fc7;
+  background: #1e6b2c;
 }
 
 .groups-filter-row {
@@ -234,7 +234,7 @@
 }
 
 .groups-select {
-  width: 100%;
+  width: calc(100% - 50px);
   padding: 10px 12px;
   border: 1px solid #e9ecef;
   border-radius: 8px;
@@ -244,7 +244,7 @@
 }
 
 .groups-select:focus {
-  border-color: #4263eb;
+  border-color: #2b8a3e;
 }
 
 .groups-sort-order {
@@ -260,7 +260,7 @@
 
 .groups-sort-order:hover {
   background: #f1f3f5;
-  border-color: #4263eb;
+  border-color: #2b8a3e;
 }
 
 .groups-range-inputs {
@@ -279,7 +279,7 @@
 }
 
 .groups-range-input:focus {
-  border-color: #4263eb;
+  border-color: #2b8a3e;
 }
 
 .groups-range-inputs span {
@@ -306,13 +306,13 @@
 }
 
 .groups-date-btn:hover {
-  border-color: #4263eb;
-  color: #4263eb;
+  border-color: #2b8a3e;
+  color: #2b8a3e;
 }
 
 .groups-date-btn.active {
-  background: #4263eb;
-  border-color: #4263eb;
+  background: #2b8a3e;
+  border-color: #2b8a3e;
   color: white;
 }
 
@@ -339,7 +339,7 @@
 }
 
 .groups-date-input:focus {
-  border-color: #4263eb;
+  border-color: #2b8a3e;
 }
 
 .groups-active-filters {
@@ -395,7 +395,6 @@
   font-size: 14px;
   color: #212529;
   border-bottom: 1px solid #e9ecef;
-  vertical-align: middle;
 }
 
 .groups-table tr:hover td {
@@ -410,81 +409,73 @@
   border-bottom: none;
 }
 
-/* Group Cell */
-.groups-cell {
+/* User Info in Table */
+.groups-user-info {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.groups-avatar {
+.groups-user-avatar {
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  object-fit: cover;
-}
-
-.groups-avatar-placeholder {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #4263eb, #364fc7);
+  background: linear-gradient(135deg, #2b8a3e, #1e6b2c);
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
   font-size: 20px;
   font-weight: 600;
+  overflow: hidden;
   flex-shrink: 0;
 }
 
-.groups-info {
-  flex: 1;
+.groups-user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
-.groups-name {
+.groups-user-name {
   font-weight: 600;
   color: #212529;
   margin-bottom: 2px;
 }
 
-.groups-id {
-  font-size: 11px;
-  color: #868e96;
-  margin-bottom: 2px;
-  font-family: monospace;
-}
-
-.groups-description {
+.groups-user-email {
   font-size: 12px;
-  color: #6b7280;
+  color: #868e96;
 }
 
-/* Badges */
-.groups-badge {
-  display: inline-block;
+/* Type Badge */
+.groups-type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 4px 10px;
   border-radius: 20px;
   font-size: 12px;
   font-weight: 500;
+  white-space: nowrap;
 }
 
-.groups-badge.members {
+.groups-type-badge.members {
   background: #e7f5ff;
   color: #1c7ed6;
 }
 
-.groups-badge.tasks {
+.groups-type-badge.tasks {
   background: #f3f0ff;
   color: #6741d9;
 }
 
-.groups-badge.reports {
+.groups-type-badge.reports {
   background: #f1f3f5;
   color: #495057;
 }
 
-.groups-badge.reports.warning {
+.groups-type-badge.reports.warning {
   background: #fff3bf;
   color: #e67700;
 }
@@ -511,7 +502,7 @@
 
 .rotation-week {
   font-weight: 600;
-  color: #4263eb;
+  color: #2b8a3e;
   font-size: 13px;
 }
 
@@ -529,29 +520,32 @@
 
 .groups-view-btn,
 .groups-delete-btn {
-  padding: 8px;
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid #e9ecef;
   border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: white;
 }
 
 .groups-view-btn {
-  background: #e7f5ff;
-  color: #1c7ed6;
+  color: #2b8a3e;
+  border-color: #2b8a3e;
 }
 
 .groups-view-btn:hover {
-  background: #1c7ed6;
+  background: #2b8a3e;
   color: white;
 }
 
 .groups-delete-btn {
-  background: #fff5f5;
   color: #fa5252;
+  border-color: #fa5252;
 }
 
 .groups-delete-btn:hover {
@@ -561,8 +555,8 @@
 
 .groups-view-btn svg,
 .groups-delete-btn svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 /* Delete Confirmation */
@@ -596,13 +590,14 @@
 .confirm-soft,
 .confirm-hard,
 .confirm-cancel {
-  padding: 6px 12px;
+  padding: 8px 12px;
   border: none;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
+  flex: 1;
 }
 
 .confirm-soft {
@@ -617,7 +612,7 @@
 
 .confirm-hard {
   background: #ffe3e3;
-  color: #c92a2a;
+  color: #fa5252;
 }
 
 .confirm-hard:hover {
@@ -656,8 +651,8 @@
 }
 
 .groups-pagination-btn:hover:not(:disabled) {
-  background: #4263eb;
-  border-color: #4263eb;
+  background: #2b8a3e;
+  border-color: #2b8a3e;
   color: white;
 }
 
@@ -716,7 +711,7 @@
 
 .groups-empty-btn {
   padding: 10px 24px;
-  background: #4263eb;
+  background: #2b8a3e;
   color: white;
   border: none;
   border-radius: 8px;
@@ -727,7 +722,27 @@
 }
 
 .groups-empty-btn:hover {
-  background: #364fc7;
+  background: #1e6b2c;
+}
+
+/* Error */
+.groups-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  background: #fff5f5;
+  border: 1px solid #ffc9c9;
+  border-radius: 12px;
+  color: #fa5252;
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+
+.groups-error svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 /* Responsive */
@@ -782,5 +797,15 @@
   .groups-table th:nth-child(3),
   .groups-table td:nth-child(3) {
     display: none;
+  }
+
+  .groups-view-btn span,
+  .groups-delete-btn span {
+    display: none;
+  }
+
+  .groups-view-btn,
+  .groups-delete-btn {
+    padding: 8px;
   }
 }

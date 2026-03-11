@@ -61,6 +61,7 @@ const Reports: React.FC = () => {
   const [updateStatus, setUpdateStatus] = useState('');
   const [updateNotes, setUpdateNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [filters, setFilters] = useState<ReportFilters>({
     status: 'ALL',
     page: 1,
@@ -128,12 +129,18 @@ const Reports: React.FC = () => {
     setFilters(prev => ({ ...prev, page: newPage }));
   };
 
+  const handleRowClick = (report: Report) => {
+    handleViewDetails(report);
+  };
+
   const handleViewDetails = (report: Report) => {
+    setSelectedRowId(report.id);
     setSelectedReport(report);
     setShowDetailsModal(true);
   };
 
-  const handleUpdateClick = (report: Report) => {
+  const handleUpdateClick = (e: React.MouseEvent, report: Report) => {
+    e.stopPropagation();
     setSelectedReport(report);
     setUpdateStatus(report.status);
     setUpdateNotes(report.resolutionNotes || '');
@@ -156,6 +163,7 @@ const Reports: React.FC = () => {
           r.id === selectedReport.id ? result.report! : r
         ));
         setShowUpdateModal(false);
+        setSelectedRowId(null);
         fetchStats();
       } else {
         alert(result.message || 'Failed to update report');
@@ -165,6 +173,18 @@ const Reports: React.FC = () => {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const closeModal = () => {
+    setShowDetailsModal(false);
+    setTimeout(() => {
+      setSelectedReport(null);
+      setSelectedRowId(null);
+    }, 300);
+  };
+
+  const closeUpdateModal = () => {
+    setShowUpdateModal(false);
   };
 
   const getStatusBadgeClass = (status: string) => {
@@ -184,6 +204,31 @@ const Reports: React.FC = () => {
       case 'RESOLVED': return faCheckCircle;
       case 'DISMISSED': return faTimes;
       default: return faFlag;
+    }
+  };
+
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case 'INAPPROPRIATE_CONTENT': return '🚫';
+      case 'HARASSMENT': return '⚠️';
+      case 'SPAM': return '📧';
+      case 'OFFENSIVE_BEHAVIOR': return '🤬';
+      case 'TASK_ABUSE': return '📋';
+      case 'GROUP_MISUSE': return '👥';
+      case 'OTHER': return '❓';
+      default: return '🏷️';
+    }
+  };
+
+  const getTypeClass = (type: string) => {
+    switch (type) {
+      case 'INAPPROPRIATE_CONTENT': return 'inappropriate';
+      case 'HARASSMENT': return 'harassment';
+      case 'SPAM': return 'spam';
+      case 'OFFENSIVE_BEHAVIOR': return 'offensive';
+      case 'TASK_ABUSE': return 'task';
+      case 'GROUP_MISUSE': return 'group';
+      default: return 'other';
     }
   };
 
@@ -214,6 +259,15 @@ const Reports: React.FC = () => {
   };
 
   const totalPages = Math.ceil(totalReports / (filters.limit || 20));
+
+  const clearFilters = () => {
+    setSearchInput('');
+    setFilters({
+      status: 'ALL',
+      page: 1,
+      limit: 20
+    });
+  };
 
   if (loading && !refreshing) {
     return <LoadingScreen message="Loading reports..." />;
@@ -318,6 +372,9 @@ const Reports: React.FC = () => {
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             className="search-input"
           />
+          <button className="search-btn" onClick={handleSearch}>
+            Search
+          </button>
         </div>
       </div>
 
@@ -330,123 +387,157 @@ const Reports: React.FC = () => {
         </div>
       ) : (
         <>
-          {/* Reports Table */}
-          <div className="table-container">
-            <table className="reports-table">
-              <thead>
-                <tr>
-                  <th>Status</th>
-                  <th>Type</th>
-                  <th>Group</th>
-                  <th>Reported By</th>
-                  <th>Description</th>
-                  <th>Reported</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reports.map((report) => (
-                  <tr key={report.id} className={report.status.toLowerCase()}>
-                    <td>
-                      <span className={`status-badge ${getStatusBadgeClass(report.status)}`}>
-                        <FontAwesomeIcon icon={getStatusIcon(report.status)} />
-                        {report.status}
-                      </span>
-                    </td>
-                    <td>{report.type.replace(/_/g, ' ')}</td>
-                    <td>
-                      <div className="group-cell">
-                        {report.group.avatarUrl ? (
-                          <img src={report.group.avatarUrl} alt="" className="group-avatar" />
-                        ) : (
-                          <div className="group-avatar-placeholder">
-                            {report.group.name.charAt(0)}
-                          </div>
-                        )}
-                        <span>{report.group.name}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="user-cell">
-                        {report.reporter.avatarUrl ? (
-                          <img src={report.reporter.avatarUrl} alt="" className="user-avatar" />
-                        ) : (
-                          <div className="user-avatar-placeholder">
-                            {report.reporter.fullName.charAt(0)}
-                          </div>
-                        )}
-                        <span>{report.reporter.fullName}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="description-cell" title={report.description}>
-                        {report.description.length > 50 
-                          ? `${report.description.substring(0, 50)}...` 
-                          : report.description}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="date-cell">
-                        <FontAwesomeIcon icon={faCalendarAlt} />
-                        {getTimeAgo(report.createdAt)}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="action-buttons">
-                        <button 
-                          className="action-btn view"
-                          onClick={() => handleViewDetails(report)}
-                          title="View Details"
-                        >
-                          <FontAwesomeIcon icon={faEye} />
-                        </button>
-                        <button 
-                          className="action-btn update"
-                          onClick={() => handleUpdateClick(report)}
-                          title="Update Status"
-                        >
-                          <FontAwesomeIcon icon={faCheck} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="pagination">
-              <button 
-                onClick={() => handlePageChange((filters.page || 1) - 1)}
-                disabled={filters.page === 1}
-                className="page-btn"
-              >
-                <FontAwesomeIcon icon={faChevronLeft} />
-              </button>
-              <span className="page-info">
-                Page {filters.page} of {totalPages}
-              </span>
-              <button 
-                onClick={() => handlePageChange((filters.page || 1) + 1)}
-                disabled={filters.page === totalPages}
-                className="page-btn"
-              >
-                <FontAwesomeIcon icon={faChevronRight} />
-              </button>
+          {/* Reports Table or Empty State */}
+          {reports.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">
+                <FontAwesomeIcon icon={faFlag} />
+              </div>
+              <h3>No reports found</h3>
+              <p>
+                {searchInput || filters.status !== 'ALL'
+                  ? "No reports match your current filters. Try adjusting your search."
+                  : "There are no reports in the system yet."}
+              </p>
+              {(searchInput || filters.status !== 'ALL') && (
+                <button className="empty-btn" onClick={clearFilters}>
+                  Clear Filters
+                </button>
+              )}
             </div>
+          ) : (
+            <>
+              {/* Reports Table */}
+              <div className="table-container">
+                <table className="reports-table">
+                  <thead>
+                    <tr>
+                      <th>Status</th>
+                      <th>Type</th>
+                      <th>Group</th>
+                      <th>Reported By</th>
+                      <th>Description</th>
+                      <th>Reported</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reports.map((report) => (
+                      <tr 
+                        key={report.id} 
+                        onClick={() => handleRowClick(report)}
+                        className={`report-row ${selectedRowId === report.id ? 'selected' : ''}`}
+                      >
+                        <td>
+                          <span className={`status-badge ${getStatusBadgeClass(report.status)}`}>
+                            <FontAwesomeIcon icon={getStatusIcon(report.status)} />
+                            {report.status}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`type-badge ${getTypeClass(report.type)}`}>
+                            <span>{getTypeIcon(report.type)}</span>
+                            {report.type.replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="group-cell">
+                            {report.group.avatarUrl ? (
+                              <img src={report.group.avatarUrl} alt="" className="group-avatar" />
+                            ) : (
+                              <div className="group-avatar-placeholder">
+                                {report.group.name.charAt(0)}
+                              </div>
+                            )}
+                            <span>{report.group.name}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="user-cell">
+                            {report.reporter.avatarUrl ? (
+                              <img src={report.reporter.avatarUrl} alt="" className="user-avatar" />
+                            ) : (
+                              <div className="user-avatar-placeholder">
+                                {report.reporter.fullName.charAt(0)}
+                              </div>
+                            )}
+                            <span>{report.reporter.fullName}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="description-cell" title={report.description}>
+                            {report.description.length > 50 
+                              ? `${report.description.substring(0, 50)}...` 
+                              : report.description}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="date-cell">
+                            <FontAwesomeIcon icon={faCalendarAlt} />
+                            {getTimeAgo(report.createdAt)}
+                          </div>
+                        </td>
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <div className="action-buttons">
+                            <button 
+                              className="action-btn view"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleViewDetails(report);
+                              }}
+                              title="View Details"
+                            >
+                              <FontAwesomeIcon icon={faEye} />
+                            </button>
+                            <button 
+                              className="action-btn update"
+                              onClick={(e) => handleUpdateClick(e, report)}
+                              title="Update Status"
+                            >
+                              <FontAwesomeIcon icon={faCheck} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="pagination">
+                  <button 
+                    onClick={() => handlePageChange((filters.page || 1) - 1)}
+                    disabled={filters.page === 1}
+                    className="page-btn"
+                  >
+                    <FontAwesomeIcon icon={faChevronLeft} />
+                  </button>
+                  <span className="page-info">
+                    Page {filters.page} of {totalPages}
+                  </span>
+                  <button 
+                    onClick={() => handlePageChange((filters.page || 1) + 1)}
+                    disabled={filters.page === totalPages}
+                    className="page-btn"
+                  >
+                    <FontAwesomeIcon icon={faChevronRight} />
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </>
       )}
 
       {/* Details Modal */}
       {showDetailsModal && selectedReport && (
-        <div className="modal-overlay" onClick={() => setShowDetailsModal(false)}>
+        <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-content report-details-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Report Details</h2>
-              <button className="modal-close" onClick={() => setShowDetailsModal(false)}>
+              <button className="modal-close" onClick={closeModal}>
                 <FontAwesomeIcon icon={faTimes} />
               </button>
             </div>
@@ -462,7 +553,10 @@ const Reports: React.FC = () => {
                 </div>
                 <div className="detail-row">
                   <span className="detail-label">Type:</span>
-                  <span>{selectedReport.type.replace(/_/g, ' ')}</span>
+                  <span className={`type-badge ${getTypeClass(selectedReport.type)}`}>
+                    <span>{getTypeIcon(selectedReport.type)}</span>
+                    {selectedReport.type.replace(/_/g, ' ')}
+                  </span>
                 </div>
                 <div className="detail-row">
                   <span className="detail-label">Reported:</span>
@@ -533,14 +627,14 @@ const Reports: React.FC = () => {
               )}
             </div>
             <div className="modal-footer">
-              <button className="modal-cancel" onClick={() => setShowDetailsModal(false)}>
+              <button className="modal-cancel" onClick={closeModal}>
                 Close
               </button>
               <button 
                 className="modal-confirm"
                 onClick={() => {
-                  setShowDetailsModal(false);
-                  handleUpdateClick(selectedReport);
+                  closeModal();
+                  handleUpdateClick({ stopPropagation: () => {} } as React.MouseEvent, selectedReport);
                 }}
               >
                 Update Status
@@ -552,11 +646,11 @@ const Reports: React.FC = () => {
 
       {/* Update Modal */}
       {showUpdateModal && selectedReport && (
-        <div className="modal-overlay" onClick={() => setShowUpdateModal(false)}>
+        <div className="modal-overlay" onClick={closeUpdateModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Update Report Status</h2>
-              <button className="modal-close" onClick={() => setShowUpdateModal(false)}>
+              <button className="modal-close" onClick={closeUpdateModal}>
                 <FontAwesomeIcon icon={faTimes} />
               </button>
             </div>
@@ -586,7 +680,7 @@ const Reports: React.FC = () => {
               </div>
             </div>
             <div className="modal-footer">
-              <button className="modal-cancel" onClick={() => setShowUpdateModal(false)}>
+              <button className="modal-cancel" onClick={closeUpdateModal}>
                 Cancel
               </button>
               <button 

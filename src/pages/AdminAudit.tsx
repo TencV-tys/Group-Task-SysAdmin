@@ -52,6 +52,7 @@ const AdminAudit = () => {
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
   // Define fetchLogs with useCallback
+  // Update your fetchLogs function with proper date handling
 
 const fetchLogs = useCallback(async () => {
   setLoading(true);
@@ -65,31 +66,73 @@ const fetchLogs = useCallback(async () => {
     if (adminFilter) filterParams.adminId = adminFilter;
     if (actionFilter) filterParams.action = actionFilter;
 
-    // Handle date range
+    // Handle date range with proper timezone
     if (dateRange === 'today') {
-      const today = new Date().toISOString().split('T')[0];
-      filterParams.startDate = today;
-      filterParams.endDate = today;
+      // Get start of today in local time
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      
+      // Get end of today in local time
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      
+      filterParams.startDate = start.toISOString();
+      filterParams.endDate = end.toISOString();
+      
+      console.log('Today range:', { 
+        start: filterParams.startDate, 
+        end: filterParams.endDate 
+      });
+      
     } else if (dateRange === 'week') {
+      // Last 7 days (including today)
       const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      
       const start = new Date();
-      start.setDate(start.getDate() - 7);
-      filterParams.startDate = start.toISOString().split('T')[0];
-      filterParams.endDate = end.toISOString().split('T')[0];
+      start.setDate(start.getDate() - 6); // Last 7 days (today + 6 previous)
+      start.setHours(0, 0, 0, 0);
+      
+      filterParams.startDate = start.toISOString();
+      filterParams.endDate = end.toISOString();
+      
+      console.log('Week range:', { 
+        start: filterParams.startDate, 
+        end: filterParams.endDate 
+      });
+      
     } else if (dateRange === 'month') {
+      // Last 30 days
       const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      
       const start = new Date();
-      start.setMonth(start.getMonth() - 1);
-      filterParams.startDate = start.toISOString().split('T')[0];
-      filterParams.endDate = end.toISOString().split('T')[0];
+      start.setDate(start.getDate() - 29); // Last 30 days
+      start.setHours(0, 0, 0, 0);
+      
+      filterParams.startDate = start.toISOString();
+      filterParams.endDate = end.toISOString();
+      
     } else if (dateRange === 'custom') {
-      if (startDate) filterParams.startDate = startDate;
-      if (endDate) filterParams.endDate = endDate;
+      // For custom dates, ensure we cover full days
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        filterParams.startDate = start.toISOString();
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filterParams.endDate = end.toISOString();
+      }
     }
 
+    console.log('Fetching with params:', filterParams);
+    
     const result = await AdminAuditService.getLogs(filterParams);
     
     if (result.success) {
+      console.log('Logs received:', result.logs?.length);
       setLogs(result.logs || []);
       setPagination(prev => ({
         total: result.pagination?.total || 0,
@@ -103,23 +146,72 @@ const fetchLogs = useCallback(async () => {
       setError(result.message || 'Failed to load audit logs');
     }
   } catch (err) {
-    setError('Network error');
     console.error('Error fetching logs:', err);
+    setError('Network error');
   } finally {
     setLoading(false);
   }
 }, [pagination.page, pagination.limit, searchTerm, adminFilter, actionFilter, dateRange, startDate, endDate]);
-  // Define fetchStatistics with useCallback
-  const fetchStatistics = useCallback(async () => {
-    try {
-      const result = await AdminAuditService.getStatistics();
-      if (result.success) {
-        setStats(result.statistics || null);
+
+// Update fetchStatistics to use the same date filters
+const fetchStatistics = useCallback(async () => {
+  try {
+    // Create filter params for statistics based on current date range
+    const statsFilters: { startDate?: string; endDate?: string } = {};
+    
+    // Apply the same date logic as fetchLogs
+    if (dateRange === 'today') {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      statsFilters.startDate = start.toISOString();
+      statsFilters.endDate = end.toISOString();
+    } else if (dateRange === 'week') {
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      const start = new Date();
+      start.setDate(start.getDate() - 6);
+      start.setHours(0, 0, 0, 0);
+      statsFilters.startDate = start.toISOString();
+      statsFilters.endDate = end.toISOString();
+    } else if (dateRange === 'month') {
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      const start = new Date();
+      start.setDate(start.getDate() - 29);
+      start.setHours(0, 0, 0, 0);
+      statsFilters.startDate = start.toISOString();
+      statsFilters.endDate = end.toISOString();
+    } else if (dateRange === 'custom') {
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        statsFilters.startDate = start.toISOString();
       }
-    } catch (err) {
-      console.error('Error fetching statistics:', err);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        statsFilters.endDate = end.toISOString();
+      }
     }
-  }, []);
+
+    console.log('Fetching stats with filters:', statsFilters);
+    
+    const result = await AdminAuditService.getStatistics(statsFilters);
+    if (result.success) {
+      setStats(result.statistics || null);
+    }
+  } catch (err) {
+    console.error('Error fetching statistics:', err);
+  }
+}, [dateRange, startDate, endDate]); // Add dependencies
+
+// Also update the useEffect to include fetchStatistics in dependencies
+useEffect(() => {
+  fetchLogs();
+  fetchStatistics();
+}, [fetchLogs, fetchStatistics]);
 
   useEffect(() => {
     fetchLogs();

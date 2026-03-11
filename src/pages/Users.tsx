@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useUsers } from '../hooks/useUsers';
 import UsersModal from '../components/UsersModal';
 import LoadingScreen from '../components/LoadingScreen';
@@ -12,18 +12,23 @@ const Users = () => {
   const [selectedUser, setSelectedUser] = useState<UserDetails | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
-  // ✅ FIXED: Added dependencies and used useCallback for fetchUsers
+  // Use useCallback to memoize fetchUsers function
+  const fetchUsersCallback = useCallback((page: number, search?: string) => {
+    fetchUsers({ 
+      page, 
+      limit: pagination.limit, 
+      search: search || undefined 
+    });
+  }, [fetchUsers, pagination.limit]);
+
   useEffect(() => {
-    fetchUsers({ page: pagination.page, limit: pagination.limit });
-  }, [fetchUsers, pagination.page, pagination.limit]);
+    fetchUsersCallback(pagination.page, searchTerm);
+  }, [pagination.page, searchTerm, fetchUsersCallback]);
 
   const handleSearch = () => {
-    fetchUsers({ 
-      page: 1, 
-      limit: pagination.limit, 
-      search: searchTerm || undefined 
-    });
+    fetchUsersCallback(1, searchTerm);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -33,31 +38,47 @@ const Users = () => {
   };
 
   const handlePageChange = (newPage: number) => {
-    fetchUsers({ 
-      page: newPage, 
-      limit: pagination.limit, 
-      search: searchTerm || undefined 
-    });
+    fetchUsersCallback(newPage, searchTerm);
   };
 
   const handleViewUser = async (userId: string) => {
+    setSelectedRowId(userId);
     setModalLoading(true);
     setShowModal(true);
 
-    const result = await getUserDetails(userId);
-    
-    if (result.success && result.data) {
-      setSelectedUser(result.data);
-    } else {
+    try {
+      const result = await getUserDetails(userId);
+      
+      if (result.success && result.data) {
+        setSelectedUser(result.data);
+      } else {
+        setShowModal(false);
+        setSelectedUser(null);
+      }
+    } catch (error) {
+      console.error('Error loading user:', error);
       setShowModal(false);
+      setSelectedUser(null);
+    } finally {
+      setModalLoading(false);
+      setSelectedRowId(null);
     }
-    
-    setModalLoading(false);
+  };
+
+  const handleRowClick = (userId: string) => {
+    handleViewUser(userId);
   };
 
   const closeModal = () => {
     setShowModal(false);
-    setSelectedUser(null);
+    setTimeout(() => {
+      setSelectedUser(null);
+    }, 300);
+  };
+
+  const clearSearch = () => {
+    setSearchTerm('');
+    fetchUsersCallback(1, '');
   };
 
   const formatDate = (dateString: string) => {
@@ -72,13 +93,13 @@ const Users = () => {
     switch (status) {
       case 'ACTIVE': return 'users-badge users-badge-active';
       case 'SUSPENDED': return 'users-badge users-badge-suspended';
-      case 'BANNED': return 'users-badge users-badge-banned';
+      case 'DISABLED': return 'users-badge users-badge-disabled';
       default: return 'users-badge users-badge-inactive';
     }
   };
 
   const getRoleBadgeClass = (role: string) => {
-    return role === 'ADMIN' ? 'users-badge users-badge-admin' : 'users-badge users-badge-user';
+    return role === 'GROUP_ADMIN' ? 'users-badge users-badge-admin' : 'users-badge users-badge-user';
   };
 
   if (loading && users.length === 0) {
@@ -102,7 +123,7 @@ const Users = () => {
               </svg>
               <input
                 type="text"
-                placeholder="Search users..."
+                placeholder="Search users by name or email..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onKeyPress={handleKeyPress}
@@ -118,89 +139,130 @@ const Users = () => {
         {/* Error Display */}
         {error && <ErrorDisplay message={error} />}
 
-        {/* Users Table */}
-        <div className="users-table-container">
-          <table className="users-table">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Email</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Groups</th>
-                <th>Tasks</th>
-                <th>Joined</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => (
-                <tr key={user.id} className="users-table-row">
-                  <td>
-                    <div className="users-user-info">
-                      <div className="users-avatar">
-                        {user.avatarUrl ? (
-                          <img src={user.avatarUrl} alt={user.fullName} />
-                        ) : (
-                          <span>{user.fullName.charAt(0).toUpperCase()}</span>
-                        )}
-                      </div>
-                      <span className="users-user-name">{user.fullName}</span>
-                    </div>
-                  </td>
-                  <td>{user.email}</td>
-                  <td>
-                    <span className={getRoleBadgeClass(user.role)}>
-                      {user.role}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={getStatusBadgeClass(user.roleStatus)}>
-                      {user.roleStatus}
-                    </span>
-                  </td>
-                  <td>{user.groupsCount}</td>
-                  <td>{user.tasksCompleted}</td>
-                  <td>{formatDate(user.createdAt)}</td>
-                  <td>
-                    <button
-                      className="users-view-btn"
-                      onClick={() => handleViewUser(user.id)}
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="12" cy="12" r="3" />
-                        <path d="M22 12c-2.667 4.667-6 7-10 7s-7.333-2.333-10-7c2.667-4.667 6-7 10-7s7.333 2.333 10 7z" />
-                      </svg>
-                      View
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {pagination.pages > 1 && (
-          <div className="users-pagination">
-            <button
-              className="users-pagination-btn"
-              disabled={pagination.page === 1}
-              onClick={() => handlePageChange(pagination.page - 1)}
-            >
-              Previous
-            </button>
-            <span className="users-pagination-info">
-              Page {pagination.page} of {pagination.pages}
-            </span>
-            <button
-              className="users-pagination-btn"
-              disabled={pagination.page === pagination.pages}
-              onClick={() => handlePageChange(pagination.page + 1)}
-            >
-              Next
-            </button>
+        {/* Users Table or Empty State */}
+        {users.length === 0 ? (
+          <div className="users-empty">
+            <div className="users-empty-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M5.5 20v-2a5 5 0 0 1 10 0v2" />
+              </svg>
+            </div>
+            <h3 className="users-empty-title">No users found</h3>
+            <p className="users-empty-message">
+              {searchTerm 
+                ? "No users match your current search. Try adjusting your search terms."
+                : "There are no users in the system yet."}
+            </p>
+            {searchTerm && (
+              <button className="users-empty-btn" onClick={clearSearch}>
+                Clear Search
+              </button>
+            )}
           </div>
+        ) : (
+          <>
+            {/* Users Table */}
+            <div className="users-table-container">
+              <table className="users-table">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Groups</th>
+                    <th>Tasks</th>
+                    <th>Joined</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((user) => (
+                    <tr 
+                      key={user.id} 
+                      onClick={() => handleRowClick(user.id)}
+                      className={`users-table-row ${selectedRowId === user.id ? 'selected' : ''}`}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <td>
+                        <div className="users-user-info">
+                          <div className="users-avatar">
+                            {user.avatarUrl ? (
+                              <img src={user.avatarUrl} alt={user.fullName} />
+                            ) : (
+                              <span>{user.fullName.charAt(0).toUpperCase()}</span>
+                            )}
+                          </div>
+                          <span className="users-user-name">{user.fullName}</span>
+                        </div>
+                      </td>
+                      <td>{user.email}</td>
+                      <td>
+                        <span className={getRoleBadgeClass(user.role)}>
+                          {user.role === 'GROUP_ADMIN' ? 'Group Admin' : 'User'}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={getStatusBadgeClass(user.roleStatus)}>
+                          {user.roleStatus}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="users-badge users-badge-count">
+                          {user.groupsCount || 0}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="users-badge users-badge-count">
+                          {user.tasksCompleted || 0}
+                        </span>
+                      </td>
+                      <td>{formatDate(user.createdAt)}</td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <button
+                          className="users-view-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewUser(user.id);
+                          }}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M22 12c-2.667 4.667-6 7-10 7s-7.333-2.333-10-7c2.667-4.667 6-7 10-7s7.333 2.333 10 7z" />
+                          </svg>
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {pagination.pages > 1 && (
+              <div className="users-pagination">
+                <button
+                  className="users-pagination-btn"
+                  disabled={pagination.page === 1}
+                  onClick={() => handlePageChange(pagination.page - 1)}
+                >
+                  Previous
+                </button>
+                <span className="users-pagination-info">
+                  Page {pagination.page} of {pagination.pages}
+                </span>
+                <button
+                  className="users-pagination-btn"
+                  disabled={pagination.page === pagination.pages}
+                  onClick={() => handlePageChange(pagination.page + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 

@@ -32,7 +32,27 @@ export interface AuditLog {
     avatarUrl?: string;
   };
 }
-
+export interface AuditLogDetails {
+  [key: string]: unknown;
+  method?: string;
+  path?: string;
+  query?: Record<string, unknown>;
+  body?: Record<string, unknown>;
+  params?: Record<string, unknown>;
+  reason?: string;
+  groupId?: string;
+  groupName?: string;
+  memberCount?: number;
+  taskCount?: number;
+  hardDelete?: boolean;
+  groupIds?: string[];
+  count?: number;
+  results?: Array<{
+    groupId: string;
+    success: boolean;
+    message: string;
+  }>;
+}
 export interface AuditLogsResponse {
   success: boolean;
   message: string;
@@ -63,13 +83,25 @@ export interface AuditStatisticsResponse {
     topAdmins: Array<{
       adminId: string;
       adminName: string;
+      adminEmail: string;
       count: number;
     }>;
     recentActivity: Array<{
       id: string;
       action: string;
+      adminId: string;
       adminName: string;
+      adminEmail: string;
+      targetUserId?: string;
+      targetUserName?: string;
+      targetUserEmail?: string;
       createdAt: string;
+      ipAddress?: string;
+      details?: AuditLogDetails; // 👈 Replaced 'any' with proper type
+    }>;
+    dailyActivity?: Array<{
+      date: string;
+      count: number;
     }>;
   };
 }

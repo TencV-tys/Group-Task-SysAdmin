@@ -7,7 +7,6 @@ import LoadingScreen from '../components/LoadingScreen';
 import ErrorDisplay from '../components/ErrorDisplay';
 import './styles/AdminGroups.css';
 
-
 interface FilterParams {
   page: number;
   limit: number;
@@ -19,6 +18,7 @@ interface FilterParams {
   createdAfter?: string;
   createdBefore?: string;
 }
+
 interface ExportFilterParams {
   search?: string;
   minMembers?: number;
@@ -26,6 +26,7 @@ interface ExportFilterParams {
   createdAfter?: string;
   createdBefore?: string;
 }
+
 const AdminGroups = () => {
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,67 +57,64 @@ const AdminGroups = () => {
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
 
-  // Define fetchGroups with useCallback
-  
-const fetchGroups = useCallback(async () => {
-  setLoading(true);
-  try {
-    const filterParams: FilterParams = {
-      page: pagination.page,
-      limit: pagination.limit,
-      sortBy,
-      sortOrder
-    };
+  const fetchGroups = useCallback(async () => {
+    setLoading(true);
+    try {
+      const filterParams: FilterParams = {
+        page: pagination.page,
+        limit: pagination.limit,
+        sortBy,
+        sortOrder
+      };
 
-    if (searchTerm) filterParams.search = searchTerm;
-    if (minMembers) filterParams.minMembers = parseInt(minMembers);
-    if (maxMembers) filterParams.maxMembers = parseInt(maxMembers);
+      if (searchTerm) filterParams.search = searchTerm;
+      if (minMembers) filterParams.minMembers = parseInt(minMembers);
+      if (maxMembers) filterParams.maxMembers = parseInt(maxMembers);
 
-    // Handle date range
-    if (dateRange === 'today') {
-      const today = new Date().toISOString().split('T')[0];
-      filterParams.createdAfter = today;
-      filterParams.createdBefore = today;
-    } else if (dateRange === 'week') {
-      const end = new Date();
-      const start = new Date();
-      start.setDate(start.getDate() - 7);
-      filterParams.createdAfter = start.toISOString().split('T')[0];
-      filterParams.createdBefore = end.toISOString().split('T')[0];
-    } else if (dateRange === 'month') {
-      const end = new Date();
-      const start = new Date();
-      start.setMonth(start.getMonth() - 1);
-      filterParams.createdAfter = start.toISOString().split('T')[0];
-      filterParams.createdBefore = end.toISOString().split('T')[0];
-    } else if (dateRange === 'custom') {
-      if (startDate) filterParams.createdAfter = startDate;
-      if (endDate) filterParams.createdBefore = endDate;
+      if (dateRange === 'today') {
+        const today = new Date().toISOString().split('T')[0];
+        filterParams.createdAfter = today;
+        filterParams.createdBefore = today;
+      } else if (dateRange === 'week') {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - 7);
+        filterParams.createdAfter = start.toISOString().split('T')[0];
+        filterParams.createdBefore = end.toISOString().split('T')[0];
+      } else if (dateRange === 'month') {
+        const end = new Date();
+        const start = new Date();
+        start.setMonth(start.getMonth() - 1);
+        filterParams.createdAfter = start.toISOString().split('T')[0];
+        filterParams.createdBefore = end.toISOString().split('T')[0];
+      } else if (dateRange === 'custom') {
+        if (startDate) filterParams.createdAfter = startDate;
+        if (endDate) filterParams.createdBefore = endDate;
+      }
+
+      const result = await AdminGroupsService.getGroups(filterParams);
+      
+      if (result.success) {
+        setGroups(result.groups || []);
+        setPagination(prev => ({
+          total: result.pagination?.total || 0,
+          page: prev.page,
+          limit: prev.limit,
+          pages: result.pagination?.pages || 1,
+          hasMore: result.pagination?.hasMore || false
+        }));
+        setError(null);
+      } else {
+        setError(result.message || 'Failed to load groups');
+      }
+    } catch (err) {
+      setError('Network error');
+      console.error('Error fetching groups:', err);
+    } finally {
+      setLoading(false);
     }
+  }, [pagination.page, pagination.limit, searchTerm, sortBy, sortOrder, minMembers, maxMembers, dateRange, startDate, endDate]);
 
-    const result = await AdminGroupsService.getGroups(filterParams);
-    
-    if (result.success) {
-      setGroups(result.groups || []);
-      setPagination(prev => ({
-        total: result.pagination?.total || 0,
-        page: prev.page,
-        limit: prev.limit,
-        pages: result.pagination?.pages || 1,
-        hasMore: result.pagination?.hasMore || false
-      }));
-      setError(null);
-    } else {
-      setError(result.message || 'Failed to load groups');
-    }
-  } catch (err) {
-    setError('Network error');
-    console.error('Error fetching groups:', err);
-  } finally {
-    setLoading(false);
-  }
-}, [pagination.page, pagination.limit, searchTerm, sortBy, sortOrder, minMembers, maxMembers, dateRange, startDate, endDate]);
-  // Define fetchStatistics with useCallback
   const fetchStatistics = useCallback(async () => {
     try {
       const result = await AdminGroupsService.getGroupStatistics();
@@ -177,61 +175,62 @@ const fetchGroups = useCallback(async () => {
 
   const handleDeleteClick = (e: React.MouseEvent, groupId: string) => {
     e.stopPropagation();
+    e.preventDefault();
     setShowDeleteConfirm(groupId);
   };
 
-const handleDeleteConfirm = async (groupId: string, hardDelete?: boolean) => {
-  try {
-    const result = await AdminGroupsService.deleteGroup(groupId, { hardDelete });
-    if (result.success) {
-      setShowDeleteConfirm(null);
-      fetchGroups();
-      fetchStatistics();
-    } else {
-      alert(result.message || 'Failed to delete group');
+  const handleDeleteConfirm = async (groupId: string, hardDelete?: boolean) => {
+    try {
+      const result = await AdminGroupsService.deleteGroup(groupId, { hardDelete });
+      if (result.success) {
+        setShowDeleteConfirm(null);
+        alert('Group deleted successfully!');
+        fetchGroups();
+        fetchStatistics();
+      } else {
+        alert(result.message || 'Failed to delete group');
+      }
+    } catch {
+      alert('Network error. Please check your connection and try again.');
     }
-  } catch {
-    // Network error or other unexpected error
-    alert('Network error. Please check your connection and try again.');
-  }
-};
+  };
 
-const handleExport = async (format: 'json' | 'csv') => {
-  try {
-    const filterParams: ExportFilterParams = {};
-    
-    if (searchTerm) filterParams.search = searchTerm;
-    if (minMembers) filterParams.minMembers = parseInt(minMembers);
-    if (maxMembers) filterParams.maxMembers = parseInt(maxMembers);
-    
-    if (dateRange === 'custom') {
-      if (startDate) filterParams.createdAfter = startDate;
-      if (endDate) filterParams.createdBefore = endDate;
-    }
+  const handleExport = async (format: 'json' | 'csv') => {
+    try {
+      const filterParams: ExportFilterParams = {};
+      
+      if (searchTerm) filterParams.search = searchTerm;
+      if (minMembers) filterParams.minMembers = parseInt(minMembers);
+      if (maxMembers) filterParams.maxMembers = parseInt(maxMembers);
+      
+      if (dateRange === 'custom') {
+        if (startDate) filterParams.createdAfter = startDate;
+        if (endDate) filterParams.createdBefore = endDate;
+      }
 
-    const result = await AdminGroupsService.exportGroups(format, filterParams);
-    
-    if (format === 'csv' && typeof result === 'string') {
-      const blob = new Blob([result], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `groups-${new Date().toISOString().split('T')[0]}.csv`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } else if (typeof result === 'object' && result !== null && 'success' in result) {
-      const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `groups-${new Date().toISOString().split('T')[0]}.json`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+      const result = await AdminGroupsService.exportGroups(format, filterParams);
+      
+      if (format === 'csv' && typeof result === 'string') {
+        const blob = new Blob([result], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `groups-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      } else if (typeof result === 'object' && result !== null && 'success' in result) {
+        const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `groups-${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      console.error('Error exporting groups:', err);
     }
-  } catch (err) {
-    console.error('Error exporting groups:', err);
-  }
-};
+  };
 
   const closeModal = () => {
     setShowModal(false);
@@ -494,38 +493,40 @@ const handleExport = async (format: 'json' | 'csv') => {
                       key={group.id} 
                       onClick={() => handleRowClick(group.id)}
                       className={`groups-row ${selectedRowId === group.id ? 'selected' : ''}`}
-                      style={{ cursor: 'pointer' }}
                     >
                       <td>
-                        <div className="groups-cell">
-                          {group.avatarUrl ? (
-                            <img src={group.avatarUrl} alt="" className="groups-avatar" />
-                          ) : (
-                            <div className="groups-avatar-placeholder">
-                              {group.name.charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                          <div className="groups-info">
-                            <div className="groups-name">{group.name}</div>
-                            <div className="groups-id">ID: {group.id.slice(0, 8)}...</div>
+                        <div className="groups-user-info">
+                          <div className="groups-user-avatar">
+                            {group.avatarUrl ? (
+                              <img src={group.avatarUrl} alt={group.name} />
+                            ) : (
+                              <span>{group.name.charAt(0).toUpperCase()}</span>
+                            )}
+                          </div>
+                          <div>
+                            <div className="groups-user-name">{group.name}</div>
+                            <div className="groups-user-email">ID: {group.id.slice(0, 8)}...</div>
                             {group.description && (
-                              <div className="groups-description">{group.description.substring(0, 30)}...</div>
+                              <div className="groups-user-email">{group.description.substring(0, 30)}...</div>
                             )}
                           </div>
                         </div>
                       </td>
                       <td>
-                        <span className="groups-badge members">
+                        <span className="groups-type-badge members">
+                          <span>👥</span>
                           {group._count?.members || 0}
                         </span>
                       </td>
                       <td>
-                        <span className="groups-badge tasks">
+                        <span className="groups-type-badge tasks">
+                          <span>📋</span>
                           {group._count?.tasks || 0}
                         </span>
                       </td>
                       <td>
-                        <span className={`groups-badge reports ${(group._count?.reports || 0) > 0 ? 'warning' : ''}`}>
+                        <span className={`groups-type-badge reports ${(group._count?.reports || 0) > 0 ? 'warning' : ''}`}>
+                          <span>🚩</span>
                           {group._count?.reports || 0}
                         </span>
                       </td>
@@ -547,52 +548,61 @@ const handleExport = async (format: 'json' | 'csv') => {
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <div className="groups-action-buttons">
-                          <button 
+                          <button
                             className="groups-view-btn"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleViewGroup(group.id);
                             }}
-                            title="View Details"
                           >
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                               <circle cx="12" cy="12" r="3" />
                               <path d="M22 12c-2.667 4.667-6 7-10 7s-7.333-2.333-10-7c2.667-4.667 6-7 10-7s7.333 2.333 10 7z" />
                             </svg>
+                            View
                           </button>
-                          <button 
+                          <button
                             className="groups-delete-btn"
                             onClick={(e) => handleDeleteClick(e, group.id)}
-                            title="Delete Group"
                           >
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                               <path d="M3 6h18" />
                               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
                               <path d="M8 4V3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1" />
                             </svg>
+                            Delete
                           </button>
                         </div>
 
                         {/* Delete Confirmation */}
                         {showDeleteConfirm === group.id && (
-                          <div className="groups-delete-confirm">
+                          <div className="groups-delete-confirm" onClick={(e) => e.stopPropagation()}>
                             <p>Delete this group?</p>
                             <div className="confirm-actions">
                               <button 
                                 className="confirm-soft"
-                                onClick={() => handleDeleteConfirm(group.id, false)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteConfirm(group.id, false);
+                                }}
                               >
                                 Soft Delete
                               </button>
                               <button 
                                 className="confirm-hard"
-                                onClick={() => handleDeleteConfirm(group.id, true)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteConfirm(group.id, true);
+                                }}
                               >
                                 Hard Delete
                               </button>
                               <button 
                                 className="confirm-cancel"
-                                onClick={() => setShowDeleteConfirm(null)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowDeleteConfirm(null);
+                                }}
                               >
                                 Cancel
                               </button>
