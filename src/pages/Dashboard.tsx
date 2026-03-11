@@ -22,7 +22,7 @@ import {
   faSpinner,
   faUserPlus
 } from '@fortawesome/free-solid-svg-icons';
-import './styles/AdminDashboard.css';
+import './styles/Dashboard.css';
 
 const Dashboard = () => {
   const { admin } = useAdminAuth();

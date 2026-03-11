@@ -10,7 +10,7 @@ const Feedback = () => {
   const {
     feedback,
     loading,
-    error,
+    error, 
     stats,
     pagination,
     fetchFeedback,

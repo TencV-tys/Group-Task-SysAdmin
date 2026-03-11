@@ -6,7 +6,8 @@ import Users from './pages/Users';
 import Feedback from './pages/Feedback';
 import Notifications from './pages/Notifications';
 import Reports from './pages/Reports'; // 👈 ADD THIS
-
+import AdminGroups from './pages/AdminGroups';
+import AdminAudit from './pages/AdminAudit';
 import AdminLayout from './components/AdminLayout';
 import LoadingScreen from './components/LoadingScreen';
 import { useAdminAuth } from './hooks/useAdminAuth';
@@ -39,6 +40,8 @@ function App() {
           <Route path="feedback" element={<Feedback />} />
           <Route path="notifications" element={<Notifications />} />
           <Route path="reports" element={<Reports />} /> {/* 👈 ADD THIS */}
+          <Route path="groups" element={<AdminGroups />} />
+          <Route path="audit" element={<AdminAudit />} />
         </Route>
         
         <Route path="/" element={<Navigate to="/admin/dashboard" />} />
