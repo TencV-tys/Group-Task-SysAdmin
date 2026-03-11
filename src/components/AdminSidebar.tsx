@@ -12,12 +12,14 @@ import {
   faChevronLeft,
   faChevronRight,
   faCrown,
-  faFlag, // 👈 ADD THIS IMPORT
+  faFlag,
+  faHistory,
+  faLayerGroup,
 } from '@fortawesome/free-solid-svg-icons';
 import { useAdminAuth } from '../hooks/useAdminAuth';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
 import { AdminNotificationsService } from '../services/admin.notifications.service';
-import { AdminReportsService } from '../services/admin.report.services'; // 👈 ADD THIS IMPORT
+import { AdminReportsService } from '../services/admin.report.services';
 import './styles/AdminSidebar.css';
 
 interface SidebarProps {
@@ -32,7 +34,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [feedbackCount, setFeedbackCount] = useState<number>(0);
   const [notificationCount, setNotificationCount] = useState<number>(0);
-  const [reportCount, setReportCount] = useState<number>(0); // 👈 ADD THIS
+  const [reportCount, setReportCount] = useState<number>(0);
   const [loading, setLoading] = useState(false);
 
   const fetchCounts = useCallback(async () => {
@@ -43,7 +45,6 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       // Fetch feedback stats
       const statsResult = await AdminFeedbackService.getFeedbackStats();
       if (statsResult.success && statsResult.data) {
-        // Count open and in-progress feedback
         const openCount = (statsResult.data.open || 0) + (statsResult.data.inProgress || 0);
         setFeedbackCount(openCount);
       }
@@ -54,7 +55,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
         setNotificationCount(unreadResult.data.count);
       }
 
-      // 👇 FETCH PENDING REPORTS COUNT
+      // Fetch pending reports count
       const reportsResult = await AdminReportsService.getReports({ status: 'PENDING', limit: 1 });
       if (reportsResult.success && reportsResult.pagination) {
         setReportCount(reportsResult.pagination.total);
@@ -110,6 +111,12 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       badge: null
     },
     {
+      path: '/admin/groups',
+      icon: faLayerGroup,
+      label: 'Manage Groups',
+      badge: null
+    },
+    {
       path: '/admin/feedback',
       icon: faComment,
       label: 'Feedback',
@@ -121,12 +128,17 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       label: 'Notifications',
       badge: notificationCount > 0 ? (notificationCount > 99 ? '99+' : notificationCount.toString()) : null
     },
-    // 👇 ADD REPORTS MENU ITEM
     {
       path: '/admin/reports',
       icon: faFlag,
       label: 'Reports',
       badge: reportCount > 0 ? (reportCount > 99 ? '99+' : reportCount.toString()) : null
+    },
+    {
+      path: '/admin/audit',
+      icon: faHistory,
+      label: 'Audit Logs',
+      badge: null
     }
   ];
 

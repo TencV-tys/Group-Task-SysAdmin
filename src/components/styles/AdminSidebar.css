@@ -109,6 +109,19 @@
   color: white;
   white-space: nowrap;
 }
+.nav-item .nav-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Ensure the icons are consistent */
+.nav-item .nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
 
 .toggle-btn {
   width: 32px;
