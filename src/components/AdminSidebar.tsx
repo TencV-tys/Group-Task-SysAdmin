@@ -1,3 +1,4 @@
+// AdminSidebar.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -11,10 +12,12 @@ import {
   faChevronLeft,
   faChevronRight,
   faCrown,
+  faFlag, // 👈 ADD THIS IMPORT
 } from '@fortawesome/free-solid-svg-icons';
 import { useAdminAuth } from '../hooks/useAdminAuth';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
 import { AdminNotificationsService } from '../services/admin.notifications.service';
+import { AdminReportsService } from '../services/admin.report.services'; // 👈 ADD THIS IMPORT
 import './styles/AdminSidebar.css';
 
 interface SidebarProps {
@@ -29,6 +32,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [feedbackCount, setFeedbackCount] = useState<number>(0);
   const [notificationCount, setNotificationCount] = useState<number>(0);
+  const [reportCount, setReportCount] = useState<number>(0); // 👈 ADD THIS
   const [loading, setLoading] = useState(false);
 
   const fetchCounts = useCallback(async () => {
@@ -44,10 +48,16 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
         setFeedbackCount(openCount);
       }
 
-      // ✅ FETCH REAL NOTIFICATION UNREAD COUNT
+      // Fetch notification unread count
       const unreadResult = await AdminNotificationsService.getUnreadCount();
       if (unreadResult.success && unreadResult.data) {
         setNotificationCount(unreadResult.data.count);
+      }
+
+      // 👇 FETCH PENDING REPORTS COUNT
+      const reportsResult = await AdminReportsService.getReports({ status: 'PENDING', limit: 1 });
+      if (reportsResult.success && reportsResult.pagination) {
+        setReportCount(reportsResult.pagination.total);
       }
       
     } catch (error) {
@@ -68,7 +78,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   // Listen for storage events (for multi-tab sync)
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'notification-updated' || e.key === 'feedback-updated') {
+      if (e.key === 'notification-updated' || e.key === 'feedback-updated' || e.key === 'report-updated') {
         fetchCounts();
       }
     };
@@ -110,6 +120,13 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       icon: faBell,
       label: 'Notifications',
       badge: notificationCount > 0 ? (notificationCount > 99 ? '99+' : notificationCount.toString()) : null
+    },
+    // 👇 ADD REPORTS MENU ITEM
+    {
+      path: '/admin/reports',
+      icon: faFlag,
+      label: 'Reports',
+      badge: reportCount > 0 ? (reportCount > 99 ? '99+' : reportCount.toString()) : null
     }
   ];
 

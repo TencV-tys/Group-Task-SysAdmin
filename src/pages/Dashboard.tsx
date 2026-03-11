@@ -1,59 +1,101 @@
-import  { useState, useEffect } from 'react';
+// pages/Dashboard.tsx
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '../hooks/useAdminAuth';
+import type { DashboardStats, ActivityLog } from '../services/admin.dashboard.service';
+import { AdminDashboardService } from '../services/admin.dashboard.service';
 import LoadingScreen from '../components/LoadingScreen';
-import ErrorDisplay from '../components/ErrorDisplay';
-import './styles/Dashboard.css';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { 
+  faUsers, 
+  faUserCog, 
+  faUsersCog,
+  faComment,
+  faFlag,
+  faHistory,
+  faBell,
+  faSync,
+  faCalendar,
+  faClock,
+  faExclamationTriangle,
+  faCheckCircle,
+  faSpinner,
+  faUserPlus
+} from '@fortawesome/free-solid-svg-icons';
+import './styles/AdminDashboard.css';
 
 const Dashboard = () => {
   const { admin } = useAdminAuth();
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  // Mock data - will be replaced with API calls
-  const stats = {
-    totalUsers: 1248,
-    newUsersToday: 12,
-    totalGroups: 156,
-    totalAdmins: 8,
-    feedbackCount: 89,
-    unreadFeedback: 23,
-    unreadNotifications: 15
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [recentActivity, setRecentActivity] = useState<ActivityLog[]>([]); // 👈 FIXED TYPE
+
+  const fetchData = async (isRefreshing = false) => {
+    if (isRefreshing) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+    
+    try {
+      // Fetch dashboard stats
+      const statsResult = await AdminDashboardService.getStats();
+      if (statsResult.success && statsResult.data) {
+        setStats(statsResult.data);
+      } else {
+        setError(statsResult.message || 'Failed to load dashboard stats');
+      }
+
+      // Fetch recent activity from audit logs
+      const activityResult = await AdminDashboardService.getRecentActivity(10);
+      if (activityResult.success && activityResult.logs) {
+        setRecentActivity(activityResult.logs);
+      }
+
+    } catch { // 👈 FIXED: Removed unused 'err' parameter
+      setError('Network error. Please try again.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
 
   useEffect(() => {
-    const fetchStats = async () => {
-      setLoading(true);
-      try {
-        // TODO: Replace with actual API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        setLoading(false);
-      } catch {
-        setError('Failed to load dashboard stats');
-        setLoading(false);
-      }
-    };
-    fetchStats();
+    fetchData();
   }, []);
 
-  const handleCardClick = (cardType: string) => {
-    switch(cardType) {
-      case 'users':
-        navigate('/admin/users');
-        break;
-      case 'groups':
-        navigate('/admin/groups');
-        break;
-      case 'feedback':
-        navigate('/admin/feedback');
-        break;
-      case 'notifications':
-        navigate('/admin/notifications');
-        break;
-      default:
-        break;
-    }
+  const handleRefresh = () => {
+    fetchData(true);
+  };
+
+  const handleCardClick = (path: string) => {
+    navigate(path);
+  };
+
+  const getActivityIcon = (action: string) => {
+    if (action.includes('USER')) return faUsers;
+    if (action.includes('REPORT')) return faFlag;
+    if (action.includes('FEEDBACK')) return faComment;
+    if (action.includes('NOTIFICATION')) return faBell;
+    return faHistory;
+  };
+
+  const formatTimeAgo = (dateString: string) => {
+    const now = new Date();
+    const date = new Date(dateString);
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
   };
 
   if (loading) {
@@ -61,208 +103,259 @@ const Dashboard = () => {
   }
 
   if (error) {
-    return <ErrorDisplay message={error} onRetry={() => window.location.reload()} />;
+    return (
+      <div className="admin-dash-error">
+        <FontAwesomeIcon icon={faExclamationTriangle} size="3x" />
+        <p>{error}</p>
+        <button onClick={handleRefresh} className="admin-dash-retry-btn">Retry</button>
+      </div>
+    );
   }
-
+ 
   return (
-    <div className="dash-wrapper">
-      <div className="dash-container">
+    <div className="admin-dash-wrapper">
+      <div className="admin-dash-container">
         {/* Header */}
-        <div className="dash-header">
+        <div className="admin-dash-header">
           <div>
-            <h1 className="dash-title">Dashboard</h1>
-            <p className="dash-welcome">Welcome back, {admin?.fullName || 'Admin'}!</p>
+            <h1 className="admin-dash-title">Dashboard</h1>
+            <p className="admin-dash-welcome">Welcome back, {admin?.fullName || 'Admin'}!</p>
           </div>
-          <div className="dash-date">
+          <div className="admin-dash-date">
+            <FontAwesomeIcon icon={faCalendar} />
             {new Date().toLocaleDateString('en-US', { 
               month: 'long', 
               day: 'numeric', 
               year: 'numeric' 
             })}
+            <button 
+              className="admin-dash-refresh-btn" 
+              onClick={handleRefresh}
+              disabled={refreshing}
+            >
+              <FontAwesomeIcon icon={faSync} className={refreshing ? 'fa-spin' : ''} />
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
           </div>
         </div>
 
-        {/* Stats Grid - 3x3 */}
-        <div className="dash-grid">
+        {/* Stats Grid */}
+        <div className="admin-dash-grid">
           {/* Users Card */}
-          <div className="dash-card dash-card-users" onClick={() => handleCardClick('users')}>
-            <div className="dash-card-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
+          <div 
+            className="admin-dash-card admin-dash-card-users" 
+            onClick={() => handleCardClick('/admin/users')}
+          >
+            <div className="admin-dash-card-icon">
+              <FontAwesomeIcon icon={faUsers} />
             </div>
-            <div className="dash-card-content">
-              <span className="dash-card-value">{stats.totalUsers}</span>
-              <span className="dash-card-label">Total Users</span>
+            <div className="admin-dash-card-content">
+              <span className="admin-dash-card-value">{stats?.users.total || 0}</span>
+              <span className="admin-dash-card-label">Total Users</span>
             </div>
-            <div className="dash-card-footer">
-              <span className="dash-badge dash-badge-green">+{stats.newUsersToday} today</span>
+            <div className="admin-dash-card-footer">
+              <span className="admin-dash-badge admin-dash-badge-green">
+                <FontAwesomeIcon icon={faUserPlus} /> +{stats?.users.newToday || 0} today
+              </span>
             </div>
           </div>
 
           {/* Admins Card */}
-          <div className="dash-card dash-card-admins" onClick={() => handleCardClick('users')}>
-            <div className="dash-card-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5" />
-                <path d="M2 12l10 5 10-5" />
-              </svg>
+          <div 
+            className="admin-dash-card admin-dash-card-admins" 
+            onClick={() => handleCardClick('/admin/users')}
+          >
+            <div className="admin-dash-card-icon">
+              <FontAwesomeIcon icon={faUserCog} />
             </div>
-            <div className="dash-card-content">
-              <span className="dash-card-value">{stats.totalAdmins}</span>
-              <span className="dash-card-label">Group Admins</span>
+            <div className="admin-dash-card-content">
+              <span className="admin-dash-card-value">{stats?.admins.groupAdmins || 0}</span>
+              <span className="admin-dash-card-label">Group Admins</span>
             </div>
-            <div className="dash-card-footer">
-              <span className="dash-badge dash-badge-blue">System Admins</span>
+            <div className="admin-dash-card-footer">
+              <span className="admin-dash-badge admin-dash-badge-purple">
+                {stats?.admins.systemAdmins || 1} System Admins
+              </span>
             </div>
           </div>
 
           {/* Groups Card */}
-          <div className="dash-card dash-card-groups" onClick={() => handleCardClick('groups')}>
-            <div className="dash-card-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
+          <div 
+            className="admin-dash-card admin-dash-card-groups" 
+            onClick={() => handleCardClick('/admin/groups')}
+          >
+            <div className="admin-dash-card-icon">
+              <FontAwesomeIcon icon={faUsersCog} />
             </div>
-            <div className="dash-card-content">
-              <span className="dash-card-value">{stats.totalGroups}</span>
-              <span className="dash-card-label">Total Groups</span>
+            <div className="admin-dash-card-content">
+              <span className="admin-dash-card-value">{stats?.groups.total || 0}</span>
+              <span className="admin-dash-card-label">Total Groups</span>
             </div>
-            <div className="dash-card-footer">
-              <span className="dash-badge dash-badge-purple">Active</span>
+            <div className="admin-dash-card-footer">
+              <span className="admin-dash-badge admin-dash-badge-blue">
+                {stats?.groups.active || 0} Active
+              </span>
             </div>
           </div>
 
           {/* Feedback Card */}
-          <div className="dash-card dash-card-feedback" onClick={() => handleCardClick('feedback')}>
-            <div className="dash-card-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
+          <div 
+            className="admin-dash-card admin-dash-card-feedback" 
+            onClick={() => handleCardClick('/admin/feedback')}
+          >
+            <div className="admin-dash-card-icon">
+              <FontAwesomeIcon icon={faComment} />
             </div>
-            <div className="dash-card-content">
-              <span className="dash-card-value">{stats.feedbackCount}</span>
-              <span className="dash-card-label">Total Feedback</span>
+            <div className="admin-dash-card-content">
+              <span className="admin-dash-card-value">{stats?.feedback.total || 0}</span>
+              <span className="admin-dash-card-label">Total Feedback</span>
             </div>
-            <div className="dash-card-footer">
-              <span className="dash-badge dash-badge-yellow">{stats.unreadFeedback} unread</span>
+            <div className="admin-dash-card-footer">
+              <span className="admin-dash-badge admin-dash-badge-yellow">
+                {stats?.feedback.open || 0} Open
+              </span>
+            </div>
+          </div>
+
+          {/* Reports Card */}
+          <div 
+            className="admin-dash-card admin-dash-card-reports" 
+            onClick={() => handleCardClick('/admin/reports')}
+          >
+            <div className="admin-dash-card-icon">
+              <FontAwesomeIcon icon={faFlag} />
+            </div>
+            <div className="admin-dash-card-content">
+              <span className="admin-dash-card-value">{stats?.reports.total || 0}</span>
+              <span className="admin-dash-card-label">Total Reports</span>
+            </div>
+            <div className="admin-dash-card-footer">
+              <span className="admin-dash-badge admin-dash-badge-red">
+                {stats?.reports.pending || 0} Pending
+              </span>
+            </div>
+          </div>
+
+          {/* Audit Logs Card */}
+          <div 
+            className="admin-dash-card admin-dash-card-audit" 
+            onClick={() => handleCardClick('/admin/audit')}
+          >
+            <div className="admin-dash-card-icon">
+              <FontAwesomeIcon icon={faHistory} />
+            </div>
+            <div className="admin-dash-card-content">
+              <span className="admin-dash-card-value">{stats?.auditLogs.last24h || 0}</span>
+              <span className="admin-dash-card-label">Actions (24h)</span>
+            </div>
+            <div className="admin-dash-card-footer">
+              <span className="admin-dash-badge admin-dash-badge-purple">
+                {stats?.auditLogs.last7d || 0} this week
+              </span>
             </div>
           </div>
 
           {/* Notifications Card */}
-          <div className="dash-card dash-card-notifications" onClick={() => handleCardClick('notifications')}>
-            <div className="dash-card-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-              </svg>
+          <div 
+            className="admin-dash-card admin-dash-card-notifications" 
+            onClick={() => handleCardClick('/admin/notifications')}
+          >
+            <div className="admin-dash-card-icon">
+              <FontAwesomeIcon icon={faBell} />
             </div>
-            <div className="dash-card-content">
-              <span className="dash-card-value">{stats.unreadNotifications}</span>
-              <span className="dash-card-label">Notifications</span>
+            <div className="admin-dash-card-content">
+              <span className="admin-dash-card-value">{stats?.notifications.unread || 0}</span>
+              <span className="admin-dash-card-label">Unread</span>
             </div>
-            <div className="dash-card-footer">
-              <span className="dash-badge dash-badge-red">Unread</span>
-            </div>
-          </div>
-
-          {/* Placeholder for future card 6 */}
-          <div className="dash-card dash-card-placeholder">
-            <div className="dash-card-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="16" />
-                <line x1="8" y1="12" x2="16" y2="12" />
-              </svg>
-            </div>
-            <div className="dash-card-content">
-              <span className="dash-card-value">Coming</span>
-              <span className="dash-card-label">Soon</span>
-            </div>
-            <div className="dash-card-footer">
-              <span className="dash-badge dash-badge-gray">New</span>
-            </div>
-          </div>
-
-          {/* Placeholder for future card 7 */}
-          <div className="dash-card dash-card-placeholder">
-            <div className="dash-card-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="16" />
-                <line x1="8" y1="12" x2="16" y2="12" />
-              </svg>
-            </div>
-            <div className="dash-card-content">
-              <span className="dash-card-value">Coming</span>
-              <span className="dash-card-label">Soon</span>
-            </div>
-            <div className="dash-card-footer">
-              <span className="dash-badge dash-badge-gray">New</span>
-            </div>
-          </div>
-
-          {/* Placeholder for future card 8 */}
-          <div className="dash-card dash-card-placeholder">
-            <div className="dash-card-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="16" />
-                <line x1="8" y1="12" x2="16" y2="12" />
-              </svg>
-            </div>
-            <div className="dash-card-content">
-              <span className="dash-card-value">Coming</span>
-              <span className="dash-card-label">Soon</span>
-            </div>
-            <div className="dash-card-footer">
-              <span className="dash-badge dash-badge-gray">New</span>
-            </div>
-          </div>
-
-          {/* Placeholder for future card 9 */}
-          <div className="dash-card dash-card-placeholder">
-            <div className="dash-card-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="16" />
-                <line x1="8" y1="12" x2="16" y2="12" />
-              </svg>
-            </div>
-            <div className="dash-card-content">
-              <span className="dash-card-value">Coming</span>
-              <span className="dash-card-label">Soon</span>
-            </div>
-            <div className="dash-card-footer">
-              <span className="dash-badge dash-badge-gray">New</span>
+            <div className="admin-dash-card-footer">
+              <span className="admin-dash-badge admin-dash-badge-pink">
+                {stats?.notifications.total || 0} Total
+              </span>
             </div>
           </div>
         </div>
 
         {/* Quick Stats */}
-        <div className="dash-quick-stats">
-          <div className="dash-stat-item">
-            <span className="dash-stat-label">New Users Today</span>
-            <span className="dash-stat-value">{stats.newUsersToday}</span>
+        <div className="admin-dash-quick-stats">
+          <div className="admin-dash-stat-item">
+            <div className="admin-dash-stat-icon">
+              <FontAwesomeIcon icon={faUserPlus} />
+            </div>
+            <div className="admin-dash-stat-content">
+              <span className="admin-dash-stat-label">New Users Today</span>
+              <span className="admin-dash-stat-value">{stats?.users.newToday || 0}</span>
+            </div>
           </div>
-          <div className="dash-stat-item">
-            <span className="dash-stat-label">Unread Feedback</span>
-            <span className="dash-stat-value">{stats.unreadFeedback}</span>
+
+          <div className="admin-dash-stat-item">
+            <div className="admin-dash-stat-icon">
+              <FontAwesomeIcon icon={faSpinner} />
+            </div>
+            <div className="admin-dash-stat-content">
+              <span className="admin-dash-stat-label">Pending Reports</span>
+              <span className="admin-dash-stat-value">{stats?.reports.pending || 0}</span>
+            </div>
           </div>
-          <div className="dash-stat-item">
-            <span className="dash-stat-label">New Notifications</span>
-            <span className="dash-stat-value">{stats.unreadNotifications}</span>
+
+          <div className="admin-dash-stat-item">
+            <div className="admin-dash-stat-icon">
+              <FontAwesomeIcon icon={faCheckCircle} />
+            </div>
+            <div className="admin-dash-stat-content">
+              <span className="admin-dash-stat-label">Resolved Reports</span>
+              <span className="admin-dash-stat-value">{stats?.reports.resolved || 0}</span>
+            </div>
           </div>
-          <div className="dash-stat-item">
-            <span className="dash-stat-label">System Admins</span>
-            <span className="dash-stat-value">1</span>
+
+          <div className="admin-dash-stat-item">
+            <div className="admin-dash-stat-icon">
+              <FontAwesomeIcon icon={faClock} />
+            </div>
+            <div className="admin-dash-stat-content">
+              <span className="admin-dash-stat-label">Actions (24h)</span>
+              <span className="admin-dash-stat-value">{stats?.auditLogs.last24h || 0}</span>
+            </div>
           </div>
         </div>
+
+        {/* Recent Activity */}
+        {recentActivity.length > 0 && (
+          <div className="admin-dash-activity">
+            <div className="admin-dash-activity-header">
+              <h3 className="admin-dash-activity-title">
+                <FontAwesomeIcon icon={faHistory} />
+                Recent Activity
+              </h3>
+              <a href="/admin/audit" className="admin-dash-activity-view-all">
+                View All →
+              </a>
+            </div>
+            <div className="admin-dash-activity-list">
+              {recentActivity.map((log) => (
+                <div key={log.id} className="admin-dash-activity-item">
+                  <div className="admin-dash-activity-icon">
+                    <FontAwesomeIcon icon={getActivityIcon(log.action)} />
+                  </div>
+                  <div className="admin-dash-activity-content">
+                    <div className="admin-dash-activity-text">
+                      <strong>{log.admin?.fullName || 'Admin'}</strong> {log.action.replace(/_/g, ' ').toLowerCase()}
+                      {log.targetUser && (
+                        <> user <strong>{log.targetUser.fullName}</strong></>
+                      )}
+                    </div>
+                    <div className="admin-dash-activity-time">
+                      <FontAwesomeIcon icon={faClock} />
+                      {formatTimeAgo(log.createdAt)}
+                    </div>
+                  </div>
+                  <span className="admin-dash-activity-badge">
+                    {log.action}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
