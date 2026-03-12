@@ -1,12 +1,14 @@
+// pages/Notifications.tsx
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom'; // Add this import
+import { useNavigate } from 'react-router-dom';
 import { useAdminNotifications } from '../hooks/useAdminNotifications';
 import LoadingScreen from '../components/LoadingScreen';
 import ErrorDisplay from '../components/ErrorDisplay';
+import type { AdminNotification } from '../services/admin.notifications.service'; // 👈 Import the type
 import './styles/Notifications.css';
 
 const Notifications = () => {
-  const navigate = useNavigate(); // Add this hook
+  const navigate = useNavigate();
   const {
     notifications,
     loading,
@@ -15,7 +17,7 @@ const Notifications = () => {
     pagination,
     fetchNotifications,
     markAsRead,
-    markAllAsRead,
+    markAllAsRead, 
     deleteNotification,
     deleteAllRead
   } = useAdminNotifications();
@@ -91,13 +93,14 @@ const Notifications = () => {
     }
   };
 
-  const handleNotificationClick = async (notification: any) => {
+  // 👇 FIXED: Use proper type instead of 'any'
+  const handleNotificationClick = async (notification: AdminNotification) => {
     // Mark as read first
     if (!notification.read) {
       await markAsRead(notification.id);
     }
 
-    // Navigate based on notification type using React Router
+    // Navigate based on notification type
     const { type, data } = notification;
     
     if (type === 'FEEDBACK_SUBMITTED' && data?.feedbackId) {
@@ -148,28 +151,32 @@ const Notifications = () => {
     }
   };
 
-  // Helper to get a short preview of data without JSON
-  const getDataPreview = (data: any) => {
-    if (!data) return null;
+// pages/Notifications.tsx
+
+const getDataPreview = (data: unknown) => {
+  if (!data) return null;
+  
+  // Type guard to check if it's an object
+  if (typeof data === 'object' && data !== null) {
+    // Safe property access with type assertion
+    const obj = data as Record<string, unknown>;
     
-    // For feedback notifications
-    if (data.feedbackId) {
-      return `Feedback ID: ${data.feedbackId.substring(0, 8)}...`;
+    if (obj.feedbackId) {
+      return `Feedback ID: ${String(obj.feedbackId).substring(0, 8)}...`;
     }
     
-    // For user registered
-    if (data.userId && data.userName) {
-      return `User: ${data.userName}`;
+    if (obj.userId && obj.userName) {
+      return `User: ${String(obj.userName)}`;
     }
     
-    // For reports
-    if (data.reportId) {
-      return `Report ID: ${data.reportId.substring(0, 8)}...`;
+    if (obj.reportId) {
+      return `Report ID: ${String(obj.reportId).substring(0, 8)}...`;
     }
-    
-    // For any other type, just show a generic preview
-    return 'Click to view details';
-  };
+  }
+  
+  return 'Click to view details';
+};
+
 
   if (loading && notifications.length === 0) {
     return <LoadingScreen message="Loading notifications..." fullScreen />;
@@ -192,30 +199,32 @@ const Notifications = () => {
                 <button
                   className="notifications-btn notifications-btn-primary"
                   onClick={handleMarkSelectedAsRead}
+                  disabled={loading} // 👈 Disable during loading
                 >
-                  Mark Selected as Read
+                  {loading ? 'Processing...' : 'Mark Selected as Read'}
                 </button>
                 <button
                   className="notifications-btn notifications-btn-danger"
                   onClick={handleDeleteSelected}
+                  disabled={loading}
                 >
-                  Delete Selected
+                  {loading ? 'Processing...' : 'Delete Selected'}
                 </button>
               </>
             )}
             <button
               className="notifications-btn notifications-btn-secondary"
               onClick={markAllAsRead}
-              disabled={unreadCount === 0}
+              disabled={unreadCount === 0 || loading}
             >
-              Mark All as Read
+              {loading ? 'Processing...' : 'Mark All as Read'}
             </button>
             <button
               className="notifications-btn notifications-btn-danger"
               onClick={handleDeleteAllRead}
-              disabled={notifications.filter(n => n.read).length === 0}
+              disabled={notifications.filter(n => n.read).length === 0 || loading}
             >
-              Delete All Read
+              {loading ? 'Processing...' : 'Delete All Read'}
             </button>
           </div>
         </div>
@@ -225,18 +234,21 @@ const Notifications = () => {
           <button
             className={`notifications-filter-btn ${filter === 'all' ? 'active' : ''}`}
             onClick={() => setFilter('all')}
+            disabled={loading}
           >
             All
           </button>
           <button
             className={`notifications-filter-btn ${filter === 'unread' ? 'active' : ''}`}
             onClick={() => setFilter('unread')}
+            disabled={loading}
           >
             Unread
           </button>
           <button
             className={`notifications-filter-btn ${filter === 'read' ? 'active' : ''}`}
             onClick={() => setFilter('read')}
+            disabled={loading}
           >
             Read
           </button>
@@ -265,6 +277,7 @@ const Notifications = () => {
                   type="checkbox"
                   checked={selectAll}
                   onChange={handleSelectAll}
+                  disabled={loading}
                 />
                 <span>Select All</span>
               </label>
@@ -278,8 +291,8 @@ const Notifications = () => {
                 return (
                   <div
                     key={notification.id}
-                    className={`notifications-item ${!notification.read ? 'unread' : ''} clickable`}
-                    onClick={() => handleNotificationClick(notification)}
+                    className={`notifications-item ${!notification.read ? 'unread' : ''} ${loading ? 'disabled' : 'clickable'}`}
+                    onClick={() => !loading && handleNotificationClick(notification)}
                   >
                     <div className="notifications-item-left" onClick={(e) => e.stopPropagation()}>
                       <label className="notifications-checkbox">
@@ -287,6 +300,7 @@ const Notifications = () => {
                           type="checkbox"
                           checked={selectedIds.includes(notification.id)}
                           onChange={() => handleSelect(notification.id)}
+                          disabled={loading}
                         />
                       </label>
                       <span className="notifications-priority">
@@ -320,6 +334,7 @@ const Notifications = () => {
                           className="notifications-item-btn"
                           onClick={() => handleMarkAsRead(notification.id)}
                           title="Mark as read"
+                          disabled={loading}
                         >
                           ✓
                         </button>
@@ -328,6 +343,7 @@ const Notifications = () => {
                         className="notifications-item-btn delete"
                         onClick={() => handleDelete(notification.id)}
                         title="Delete"
+                        disabled={loading}
                       >
                         ×
                       </button>
@@ -342,8 +358,8 @@ const Notifications = () => {
               <div className="notifications-pagination">
                 <button
                   className="notifications-pagination-btn"
-                  disabled={pagination.page === 1}
-                  onClick={() => handlePageChange(pagination.page - 1)}
+                  disabled={pagination.page === 1 || loading}
+                  onClick={() => !loading && handlePageChange(pagination.page - 1)}
                 >
                   Previous
                 </button>
@@ -352,14 +368,21 @@ const Notifications = () => {
                 </span>
                 <button
                   className="notifications-pagination-btn"
-                  disabled={pagination.page === pagination.pages}
-                  onClick={() => handlePageChange(pagination.page + 1)}
+                  disabled={pagination.page === pagination.pages || loading}
+                  onClick={() => !loading && handlePageChange(pagination.page + 1)}
                 >
                   Next
                 </button>
               </div>
             )}
           </>
+        )}
+
+        {/* Optional: Add loading overlay for background operations */}
+        {loading && notifications.length > 0 && (
+          <div className="notifications-loading-overlay">
+            <div className="notifications-spinner"></div>
+          </div>
         )}
       </div>
     </div>

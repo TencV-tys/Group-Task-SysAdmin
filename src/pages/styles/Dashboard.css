@@ -455,6 +455,9 @@
 
 /* ===== ERROR & LOADING STATES ===== */
 .admin-dash-error {
+  display: flex;
+  justify-content: center;
+  align-items: center;
   text-align: center;
   padding: 60px 20px;
   background: white;

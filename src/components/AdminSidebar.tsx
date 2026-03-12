@@ -1,5 +1,5 @@
-// AdminSidebar.tsx
-import React, { useState, useEffect, useCallback } from 'react';
+// layouts/AdminSidebar.tsx
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
@@ -35,58 +35,121 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   const [feedbackCount, setFeedbackCount] = useState<number>(0);
   const [notificationCount, setNotificationCount] = useState<number>(0);
   const [reportCount, setReportCount] = useState<number>(0);
-  const [loading, setLoading] = useState(false);
+  
+  // 🔥 Use refs to track if data has been fetched
+  const hasFetchedRef = useRef(false);
+  const fetchTimeoutRef = useRef<number|undefined>(undefined);
 
-  const fetchCounts = useCallback(async () => {
-    if (loading) return;
-    
-    setLoading(true);
-    try {
-      // Fetch feedback stats
-      const statsResult = await AdminFeedbackService.getFeedbackStats();
-      if (statsResult.success && statsResult.data) {
-        const openCount = (statsResult.data.open || 0) + (statsResult.data.inProgress || 0);
-        setFeedbackCount(openCount);
-      }
-
-      // Fetch notification unread count
-      const unreadResult = await AdminNotificationsService.getUnreadCount();
-      if (unreadResult.success && unreadResult.data) {
-        setNotificationCount(unreadResult.data.count);
-      }
-
-      // Fetch pending reports count
-      const reportsResult = await AdminReportsService.getReports({ status: 'PENDING', limit: 1 });
-      if (reportsResult.success && reportsResult.pagination) {
-        setReportCount(reportsResult.pagination.total);
-      }
-      
-    } catch (error) {
-      console.error('Failed to fetch counts:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [loading]);
-
+  // 🔥 Fetch counts only once when component mounts
   useEffect(() => {
-    fetchCounts();
+    // Only fetch if we haven't fetched before
+    if (hasFetchedRef.current) return;
     
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchCounts, 30000);
-    return () => clearInterval(interval);
-  }, [fetchCounts]);
+    const fetchCounts = async () => {
+      try {
+        // Use Promise.allSettled to handle failures gracefully
+        const [statsResult, unreadResult, reportsResult] = await Promise.allSettled([
+          AdminFeedbackService.getFeedbackStats(),
+          AdminNotificationsService.getUnreadCount(),
+          AdminReportsService.getReports({ status: 'PENDING', limit: 1 })
+        ]);
 
-  // Listen for storage events (for multi-tab sync)
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'notification-updated' || e.key === 'feedback-updated' || e.key === 'report-updated') {
-        fetchCounts();
+        // Handle feedback stats
+        if (statsResult.status === 'fulfilled' && statsResult.value.success && statsResult.value.data) {
+          const openCount = (statsResult.value.data.open || 0) + (statsResult.value.data.inProgress || 0);
+          setFeedbackCount(openCount);
+        }
+
+        // Handle notification count
+        if (unreadResult.status === 'fulfilled' && unreadResult.value.success && unreadResult.value.data) {
+          setNotificationCount(unreadResult.value.data.count);
+        }
+
+        // Handle reports count
+        if (reportsResult.status === 'fulfilled' && reportsResult.value.success && reportsResult.value.pagination) {
+          setReportCount(reportsResult.value.pagination.total);
+        }
+        
+        // Mark as fetched
+        hasFetchedRef.current = true;
+        
+      } catch (error) {
+        console.error('Failed to fetch counts:', error);
+        // Don't mark as fetched on error so we can retry
       }
     };
 
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, [fetchCounts]);
+    fetchCounts();
+
+    // 🔥 NO interval! Just fetch once on mount
+
+    return () => {
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
+    };
+  }, []); // Empty dependency array = runs once on mount
+
+  // 🔥 Listen for specific events that should trigger a refresh
+  useEffect(() => {
+    const handleFeedbackUpdate = () => {
+      // Debounce the refresh
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
+      
+      fetchTimeoutRef.current = setTimeout(() => {
+        AdminFeedbackService.getFeedbackStats().then(result => {
+          if (result.success && result.data) {
+            const openCount = (result.data.open || 0) + (result.data.inProgress || 0);
+            setFeedbackCount(openCount);
+          }
+        });
+      }, 1000);
+    };
+
+    const handleNotificationUpdate = () => {
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
+      
+      fetchTimeoutRef.current = setTimeout(() => {
+        AdminNotificationsService.getUnreadCount().then(result => {
+          if (result.success && result.data) {
+            setNotificationCount(result.data.count);
+          }
+        });
+      }, 1000);
+    };
+
+    const handleReportUpdate = () => {
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
+      
+      fetchTimeoutRef.current = setTimeout(() => {
+        AdminReportsService.getReports({ status: 'PENDING', limit: 1 }).then(result => {
+          if (result.success && result.pagination) {
+            setReportCount(result.pagination.total);
+          }
+        });
+      }, 1000);
+    };
+
+    // Listen for custom events (these would be dispatched when actions happen)
+    window.addEventListener('feedback-updated', handleFeedbackUpdate);
+    window.addEventListener('notification-updated', handleNotificationUpdate);
+    window.addEventListener('report-updated', handleReportUpdate);
+
+    return () => {
+      window.removeEventListener('feedback-updated', handleFeedbackUpdate);
+      window.removeEventListener('notification-updated', handleNotificationUpdate);
+      window.removeEventListener('report-updated', handleReportUpdate);
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const isActive = (path: string) => {
     return location.pathname.startsWith(path);
@@ -100,7 +163,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   // Format role for display - hide SUPER_ADMIN
   const getDisplayRole = (role: string | undefined) => {
     if (!role) return 'Administrator';
-    if (role === 'SUPER_ADMIN') return 'Administrator'; // Hide SUPER_ADMIN
+    if (role === 'SUPER_ADMIN') return 'Administrator';
     return role.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
   };
 

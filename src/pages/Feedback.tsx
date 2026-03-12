@@ -12,7 +12,7 @@ const Feedback = () => {
     feedback,
     loading,
     error,  
-    stats,
+    stats, 
     pagination,
     fetchFeedback,
     fetchStats,
@@ -28,6 +28,15 @@ const Feedback = () => {
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [initialLoad, setInitialLoad] = useState(true);
   const isMounted = useRef(true);
+
+  // pages/Feedback.tsx - Add this effect for sidebar updates
+useEffect(() => {
+  // When feedback updates, notify sidebar
+  if (!loading && feedback.length > 0) {
+    // This is just to trigger a re-render when needed
+  }
+}, [feedback, loading]);
+
 
   // Fetch stats once on mount
   useEffect(() => {
@@ -119,25 +128,7 @@ const Feedback = () => {
     handleViewFeedback(feedbackId);
   };
 
-  const handleUpdateStatus = async (status: string) => {
-    if (!selectedFeedback) return;
-    
-    const result = await updateStatus(selectedFeedback.id, status);
-    if (result.success && isMounted.current) {
-      if (result.data) {
-        setSelectedFeedback(result.data);
-      }
-      
-      // Refresh the list
-      fetchFeedback({ 
-        page: pagination.page, 
-        limit: pagination.limit,
-        status: statusFilter || undefined,
-        search: searchTerm || undefined
-      });
-    }
-  };
-
+ 
   const closeModal = () => {
     setShowModal(false);
     setTimeout(() => {
@@ -146,7 +137,27 @@ const Feedback = () => {
       }
     }, 300);
   };
-
+const handleUpdateStatus = async (status: string) => {
+  if (!selectedFeedback) return;
+  
+  const result = await updateStatus(selectedFeedback.id, status);
+  if (result.success && isMounted.current) {
+    if (result.data) {
+      setSelectedFeedback(result.data);
+    }
+    
+    // This will now show loading state properly
+    fetchFeedback({ 
+      page: pagination.page, 
+      limit: pagination.limit,
+      status: statusFilter || undefined,
+      search: searchTerm || undefined
+    });
+    
+    // Close modal
+    closeModal();
+  }
+}
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',

@@ -39,7 +39,7 @@ const Dashboard = () => {
     } else {
       setLoading(true);
     }
-    
+     
     try {
       // Fetch dashboard stats
       const statsResult = await AdminDashboardService.getStats();
@@ -109,7 +109,7 @@ const Dashboard = () => {
         <p>{error}</p>
         <button onClick={handleRefresh} className="admin-dash-retry-btn">Retry</button>
       </div>
-    );
+    ); 
   }
  
   return (

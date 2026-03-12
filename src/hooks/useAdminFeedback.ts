@@ -1,5 +1,5 @@
 // hooks/useAdminFeedback.ts
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
 import { useDataCache } from './useDataCache';
 import type { 
@@ -10,19 +10,6 @@ import type {
   FeedbackListResponse 
 } from '../services/admin.feedback.service';
 
-interface FetchFeedbackResult {
-  success: boolean;
-  data?: {
-    feedback: Feedback[];
-    pagination: {
-      page: number;
-      limit: number;
-      total: number;
-      pages: number;
-    };
-  };
-  message?: string;
-}
 interface FeedbackListData {
   feedback: Feedback[];
   pagination: {
@@ -63,11 +50,16 @@ interface DeleteResult {
 }
 
 export function useAdminFeedback() {
+  // 🔥 Add local loading states for operations
+  const [fetchLoading, setFetchLoading] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [updateLoading, setUpdateLoading] = useState(false);
+
   // Cache for feedback list
   const {
     data: feedbackData,
-    loading,
-    error,
+    loading: initialLoading,
+    error: cacheError,
     refresh: refreshFeedback
   } = useDataCache<FeedbackListData>(
     'admin-feedback',
@@ -107,21 +99,33 @@ export function useAdminFeedback() {
     pages: 0
   };
 
+  // 🔥 Combined loading state
+  const loading = initialLoading || fetchLoading || statsLoading || updateLoading;
+  const error = cacheError;
+
   const fetchFeedback = useCallback(async (filters?: FeedbackFilters): Promise<FetchFeedbackResult> => {
+    setFetchLoading(true);
     try {
       const result = await AdminFeedbackService.getFeedback(filters);
       if (result.success && result.data) {
-        await refreshFeedback();
+        // Update the cache with new data
+        if (result.data) {
+          // Manually update the cache or refresh
+          await refreshFeedback();
+        }
         return { success: true, data: result.data };
       }
       return { success: false, message: result.message };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to fetch feedback';
       return { success: false, message: errorMessage };
+    } finally {
+      setFetchLoading(false);
     }
   }, [refreshFeedback]);
 
   const fetchStats = useCallback(async (): Promise<FetchStatsResult> => {
+    setStatsLoading(true);
     try {
       const result = await AdminFeedbackService.getFeedbackStats();
       if (result.success && result.data) {
@@ -132,6 +136,8 @@ export function useAdminFeedback() {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to fetch stats';
       return { success: false, message: errorMessage };
+    } finally {
+      setStatsLoading(false);
     }
   }, [refreshStats]);
 
@@ -149,36 +155,50 @@ export function useAdminFeedback() {
   }, []);
 
   const updateStatus = useCallback(async (feedbackId: string, status: string): Promise<UpdateStatusResult> => {
+    setUpdateLoading(true);
     try {
       const result = await AdminFeedbackService.updateFeedbackStatus(feedbackId, status);
       if (result.success) {
         await Promise.all([refreshFeedback(), refreshStats()]);
+        
+        // 🔥 Dispatch event for sidebar to update
+        window.dispatchEvent(new Event('feedback-updated'));
+        
         return { success: true, data: result.data };
       }
       return { success: false, message: result.message };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update';
       return { success: false, message: errorMessage };
+    } finally {
+      setUpdateLoading(false);
     }
   }, [refreshFeedback, refreshStats]);
 
   const deleteFeedback = useCallback(async (feedbackId: string): Promise<DeleteResult> => {
+    setUpdateLoading(true);
     try {
       const result = await AdminFeedbackService.deleteFeedback(feedbackId);
       if (result.success) {
         await Promise.all([refreshFeedback(), refreshStats()]);
+        
+        // 🔥 Dispatch event for sidebar to update
+        window.dispatchEvent(new Event('feedback-updated'));
+        
         return { success: true };
       }
       return { success: false, message: result.message };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to delete';
       return { success: false, message: errorMessage };
+    } finally {
+      setUpdateLoading(false);
     }
   }, [refreshFeedback, refreshStats]);
 
   return {
     feedback: feedbackData?.feedback || [],
-    loading,
+    loading,  // Now this combines all loading states
     error,
     stats: stats || null,
     pagination,
