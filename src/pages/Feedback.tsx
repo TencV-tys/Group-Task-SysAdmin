@@ -17,26 +17,26 @@ const Feedback = () => {
     fetchFeedback,
     fetchStats,
     getFeedbackDetails,
-    updateStatus
+    updateStatus,
+    refreshFeedback
   } = useAdminFeedback();
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [debouncedStatus, setDebouncedStatus] = useState<string>('');
   const [selectedFeedback, setSelectedFeedback] = useState<FeedbackDetails | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [initialLoad, setInitialLoad] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  
+  // Refs
   const isMounted = useRef(true);
-
-  // pages/Feedback.tsx - Add this effect for sidebar updates
-useEffect(() => {
-  // When feedback updates, notify sidebar
-  if (!loading && feedback.length > 0) {
-    // This is just to trigger a re-render when needed
-  }
-}, [feedback, loading]);
-
+  const fetchInProgress = useRef(false);
+  const searchTimeoutRef = useRef<number|undefined>(undefined);
+  const statusTimeoutRef = useRef<number|undefined>(undefined);
 
   // Fetch stats once on mount
   useEffect(() => {
@@ -46,40 +46,90 @@ useEffect(() => {
     };
   }, [fetchStats]);
 
+  // Debounce search
   useEffect(() => {
-    let isActive = true;
-    
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    searchTimeoutRef.current = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setCurrentPage(1);
+    }, 500);
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchTerm]);
+
+  // Debounce status filter
+  useEffect(() => {
+    if (statusTimeoutRef.current) {
+      clearTimeout(statusTimeoutRef.current);
+    }
+
+    statusTimeoutRef.current = setTimeout(() => {
+      setDebouncedStatus(statusFilter);
+      setCurrentPage(1);
+    }, 500);
+
+    return () => {
+      if (statusTimeoutRef.current) {
+        clearTimeout(statusTimeoutRef.current);
+      }
+    };
+  }, [statusFilter]);
+
+  // Fetch feedback when dependencies change - USING HARDCODED LIMIT
+  useEffect(() => {
     const loadFeedback = async () => {
+      if (fetchInProgress.current) return;
+      
+      fetchInProgress.current = true;
+      
       try {
         await fetchFeedback({ 
-          page: pagination.page, 
-          limit: pagination.limit,
-          status: statusFilter || undefined,
-          search: searchTerm || undefined
+          page: currentPage, 
+          limit: 10, // Hardcoded limit to prevent infinite loops
+          status: debouncedStatus || undefined,
+          search: debouncedSearch || undefined
         });
-        if (isActive && isMounted.current) {
-          setInitialLoad(false);
-        }
-      } catch (error) {
-        console.error('Error loading feedback:', error);
+      } finally {
+        fetchInProgress.current = false;
+        setInitialLoad(false);
       }
     };
  
     loadFeedback();
+  }, [currentPage, debouncedStatus, debouncedSearch, fetchFeedback]); // Removed pagination.limit
+
+  // Safety effect to prevent infinite loading
+  useEffect(() => {
+    let timeoutId: number;
+    
+    if (loading && !fetchInProgress.current && !initialLoad) {
+      timeoutId = setTimeout(() => {
+        console.log('⚠️ Feedback loading stuck - forcing silent refresh');
+        refreshFeedback();
+      }, 10000);
+    }
     
     return () => {
-      isActive = false;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     };
-  }, [pagination.page, pagination.limit, statusFilter, searchTerm, fetchFeedback]); 
+  }, [loading, refreshFeedback, initialLoad]);
+
   const handleSearch = useCallback(() => {
-    // Reset to page 1 when searching
-    fetchFeedback({ 
-      page: 1, 
-      limit: pagination.limit, 
-      search: searchTerm || undefined,
-      status: statusFilter || undefined
-    });
-  }, [fetchFeedback, pagination.limit, searchTerm, statusFilter]);
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    setDebouncedSearch(searchTerm);
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -88,15 +138,13 @@ useEffect(() => {
   }, [handleSearch]);
 
   const handlePageChange = useCallback((newPage: number) => {
-    fetchFeedback({ 
-      page: newPage, 
-      limit: pagination.limit,
-      search: searchTerm || undefined,
-      status: statusFilter || undefined
-    });
-  }, [fetchFeedback, pagination.limit, searchTerm, statusFilter]);
+    if (newPage === currentPage || fetchInProgress.current || loading) return;
+    setCurrentPage(newPage);
+  }, [currentPage, loading]);
 
   const handleViewFeedback = async (feedbackId: string) => {
+    if (selectedRowId === feedbackId) return;
+    
     setSelectedRowId(feedbackId);
     setModalLoading(true);
     setShowModal(true);
@@ -107,8 +155,10 @@ useEffect(() => {
       if (result.success && result.data && isMounted.current) {
         setSelectedFeedback(result.data);
       } else {
-        setShowModal(false);
-        setSelectedFeedback(null);
+        if (isMounted.current) {
+          setShowModal(false);
+          setSelectedFeedback(null);
+        }
       }
     } catch (error) {
       console.error('Error loading feedback:', error);
@@ -128,7 +178,6 @@ useEffect(() => {
     handleViewFeedback(feedbackId);
   };
 
- 
   const closeModal = () => {
     setShowModal(false);
     setTimeout(() => {
@@ -137,27 +186,19 @@ useEffect(() => {
       }
     }, 300);
   };
-const handleUpdateStatus = async (status: string) => {
-  if (!selectedFeedback) return;
-  
-  const result = await updateStatus(selectedFeedback.id, status);
-  if (result.success && isMounted.current) {
-    if (result.data) {
-      setSelectedFeedback(result.data);
+
+  const handleUpdateStatus = async (status: string) => {
+    if (!selectedFeedback) return;
+    
+    const result = await updateStatus(selectedFeedback.id, status);
+    if (result.success && isMounted.current) {
+      if (result.data) {
+        setSelectedFeedback(result.data);
+      }
+      closeModal();
     }
-    
-    // This will now show loading state properly
-    fetchFeedback({ 
-      page: pagination.page, 
-      limit: pagination.limit,
-      status: statusFilter || undefined,
-      search: searchTerm || undefined
-    });
-    
-    // Close modal
-    closeModal();
-  }
-}
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -203,7 +244,7 @@ const handleUpdateStatus = async (status: string) => {
       case 'OPEN':
         return ['IN_PROGRESS', 'RESOLVED', 'CLOSED'];
       case 'IN_PROGRESS':
-        return ['RESOLVED'];
+        return ['RESOLVED', 'CLOSED'];
       case 'RESOLVED':
         return ['CLOSED'];
       case 'CLOSED':
@@ -215,10 +256,13 @@ const handleUpdateStatus = async (status: string) => {
 
   const clearFilters = useCallback(() => {
     setSearchTerm('');
+    setDebouncedSearch('');
     setStatusFilter('');
-    // Fetch will trigger via useEffect
+    setDebouncedStatus('');
+    setCurrentPage(1);
   }, []);
 
+  // Show loading screen only on initial load
   if (initialLoad && loading && feedback.length === 0) {
     return <LoadingScreen message="Loading feedback..." fullScreen />;
   }
@@ -253,7 +297,7 @@ const handleUpdateStatus = async (status: string) => {
               <span className="feedback-stat-value">{stats.closed}</span>
               <span className="feedback-stat-label">Closed</span>
             </div>
-            <div className="feedback-stat-card">
+            <div className="feedback-stat-card total">
               <span className="feedback-stat-value">{stats.total}</span>
               <span className="feedback-stat-label">Total</span>
             </div>
@@ -282,11 +326,12 @@ const handleUpdateStatus = async (status: string) => {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onKeyPress={handleKeyPress}
                 className="feedback-search-input"
+                disabled={loading || fetchInProgress.current}
               />
               <button 
                 onClick={handleSearch} 
                 className="feedback-search-btn"
-                disabled={loading}
+                disabled={loading || fetchInProgress.current || searchTerm === debouncedSearch}
               >
                 {loading ? 'Searching...' : 'Search'}
               </button>
@@ -297,43 +342,50 @@ const handleUpdateStatus = async (status: string) => {
             <button
               className={`feedback-filter-btn ${!statusFilter ? 'active' : ''}`}
               onClick={() => setStatusFilter('')}
-              disabled={loading}
+              disabled={loading || fetchInProgress.current}
             >
               All
             </button>
             <button
               className={`feedback-filter-btn ${statusFilter === 'OPEN' ? 'active' : ''}`}
               onClick={() => setStatusFilter('OPEN')}
-              disabled={loading}
+              disabled={loading || fetchInProgress.current}
             >
-              Open
+              Open {stats?.open ? `(${stats.open})` : ''}
             </button>
             <button
               className={`feedback-filter-btn ${statusFilter === 'IN_PROGRESS' ? 'active' : ''}`}
               onClick={() => setStatusFilter('IN_PROGRESS')}
-              disabled={loading}
+              disabled={loading || fetchInProgress.current}
             >
-              In Progress
+              In Progress {stats?.inProgress ? `(${stats.inProgress})` : ''}
             </button>
             <button
               className={`feedback-filter-btn ${statusFilter === 'RESOLVED' ? 'active' : ''}`}
               onClick={() => setStatusFilter('RESOLVED')}
-              disabled={loading}
+              disabled={loading || fetchInProgress.current}
             >
-              Resolved
+              Resolved {stats?.resolved ? `(${stats.resolved})` : ''}
             </button>
             <button
               className={`feedback-filter-btn ${statusFilter === 'CLOSED' ? 'active' : ''}`}
               onClick={() => setStatusFilter('CLOSED')}
-              disabled={loading}
+              disabled={loading || fetchInProgress.current}
             >
-              Closed
+              Closed {stats?.closed ? `(${stats.closed})` : ''}
             </button>
           </div>
         </div>
 
         {/* Error Display */}
-        {error && <ErrorDisplay message={error} />}
+        {error && <ErrorDisplay message={error} onRetry={() => {
+          fetchFeedback({ 
+            page: currentPage, 
+            limit: 10, // Hardcoded limit
+            status: debouncedStatus || undefined,
+            search: debouncedSearch || undefined
+          });
+        }} />}
 
         {/* Feedback Table or Empty State */}
         {feedback.length === 0 && !loading ? (
@@ -345,11 +397,11 @@ const handleUpdateStatus = async (status: string) => {
             </div>
             <h3 className="feedback-empty-title">No feedback found</h3>
             <p className="feedback-empty-message">
-              {searchTerm || statusFilter 
+              {debouncedSearch || debouncedStatus 
                 ? "No feedback matches your current filters. Try adjusting your search."
                 : "There are no feedback submissions yet."}
             </p>
-            {(searchTerm || statusFilter) && (
+            {(debouncedSearch || debouncedStatus) && (
               <button className="feedback-empty-btn" onClick={clearFilters}>
                 Clear Filters
               </button>
@@ -357,6 +409,11 @@ const handleUpdateStatus = async (status: string) => {
           </div>
         ) : (
           <>
+            {/* Results Summary */}
+            <div className="feedback-results-summary">
+              <span>Showing {feedback.length} of {pagination.total} results</span>
+            </div>
+
             {/* Feedback Table */}
             <div className="feedback-table-container">
               <table className="feedback-table">
@@ -376,8 +433,8 @@ const handleUpdateStatus = async (status: string) => {
                     <tr 
                       key={item.id} 
                       onClick={() => handleRowClick(item.id)}
-                      className={`feedback-row ${selectedRowId === item.id ? 'selected' : ''}`}
-                      style={{ cursor: 'pointer' }}
+                      className={`feedback-row ${selectedRowId === item.id ? 'selected' : ''} ${loading || fetchInProgress.current ? 'disabled' : ''}`}
+                      style={{ cursor: loading || fetchInProgress.current ? 'wait' : 'pointer' }}
                     >
                       <td>
                         <div className="feedback-user-info">
@@ -385,7 +442,7 @@ const handleUpdateStatus = async (status: string) => {
                             {item.user.avatarUrl ? (
                               <img src={item.user.avatarUrl} alt={item.user.fullName} />
                             ) : (
-                              <span>{item.user.fullName.charAt(0).toUpperCase()}</span>
+                              <span>{item.user.fullName?.charAt(0).toUpperCase() || '?'}</span>
                             )}
                           </div>
                           <div>
@@ -421,7 +478,7 @@ const handleUpdateStatus = async (status: string) => {
                             e.stopPropagation();
                             handleViewFeedback(item.id);
                           }}
-                          disabled={modalLoading}
+                          disabled={modalLoading || loading || fetchInProgress.current}
                         >
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <circle cx="12" cy="12" r="3" />
@@ -441,18 +498,21 @@ const handleUpdateStatus = async (status: string) => {
               <div className="feedback-pagination">
                 <button
                   className="feedback-pagination-btn"
-                  disabled={pagination.page === 1 || loading}
-                  onClick={() => handlePageChange(pagination.page - 1)}
+                  disabled={currentPage === 1 || loading || fetchInProgress.current}
+                  onClick={() => handlePageChange(currentPage - 1)}
                 >
                   Previous
                 </button>
-                <span className="feedback-pagination-info">
-                  Page {pagination.page} of {pagination.pages}
-                </span>
+                <div className="feedback-pagination-info">
+                  <span>Page {currentPage} of {pagination.pages}</span>
+                  <span className="feedback-pagination-total">
+                    (Total: {pagination.total} {pagination.total === 1 ? 'item' : 'items'})
+                  </span>
+                </div>
                 <button
                   className="feedback-pagination-btn"
-                  disabled={pagination.page === pagination.pages || loading}
-                  onClick={() => handlePageChange(pagination.page + 1)}
+                  disabled={currentPage === pagination.pages || loading || fetchInProgress.current}
+                  onClick={() => handlePageChange(currentPage + 1)}
                 >
                   Next
                 </button>

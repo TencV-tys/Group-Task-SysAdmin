@@ -7,15 +7,15 @@ interface FetchUsersResult {
   success: boolean;
   data?: {
     users: User[];
-    pagination: {
-      page: number;
+    pagination: { 
+      page: number; 
       limit: number;
       total: number;
       pages: number;
     };
   };
   message?: string;
-}
+} 
 
 interface FetchUserDetailsResult {
   success: boolean;

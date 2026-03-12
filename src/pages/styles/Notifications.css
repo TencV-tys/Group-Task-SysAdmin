@@ -8,7 +8,113 @@
   padding: 32px;
   width: 100%;
 }
+/* Add to your Notifications.css */
 
+.notifications-empty-state {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 500px;
+  padding: 2rem;
+}
+
+.notifications-empty-card {
+  background: white;
+  border-radius: 12px;
+  padding: 3rem 2rem;
+  text-align: center;
+  max-width: 500px;
+  width: 100%;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e5e7eb;
+}
+
+.notifications-empty-icon {
+  color: #9ca3af;
+  margin-bottom: 1.5rem;
+}
+
+.notifications-empty-icon svg {
+  width: 64px;
+  height: 64px;
+}
+
+.notifications-empty-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 0.75rem;
+}
+
+.notifications-empty-message {
+  color: #6b7280;
+  margin-bottom: 2rem;
+  line-height: 1.5;
+}
+
+.notifications-empty-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+  margin-bottom: 2rem;
+}
+
+.notifications-example-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: #f9fafb;
+  border-radius: 20px;
+  color: #4b5563;
+  font-size: 0.875rem;
+}
+
+.notifications-example-icon {
+  font-size: 1rem;
+}
+
+.notifications-empty-btn {
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.notifications-empty-btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.notifications-empty-btn-primary:hover {
+  background: #2563eb;
+}
+
+.notifications-empty-btn-secondary {
+  background: #f3f4f6;
+  color: #4b5563;
+  border: 1px solid #e5e7eb;
+}
+
+.notifications-empty-btn-secondary:hover {
+  background: #e5e7eb;
+}
+
+.notifications-dev-actions {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 1px dashed #e5e7eb;
+}
+
+.notifications-dev-note {
+  font-size: 0.875rem;
+  color: #9ca3af;
+  margin-bottom: 1rem;
+}
 /* Header */
 .notifications-header {
   display: flex;
