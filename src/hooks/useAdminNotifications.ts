@@ -67,6 +67,8 @@ export function useAdminNotifications() {
   // Refs
   const isMountedRef = useRef(true);
   const refreshInProgress = useRef(false);
+  const fetchCountRef = useRef(0);
+  const forcedResetRef = useRef(false);
 
   // Cache for notifications list
   const {
@@ -129,6 +131,24 @@ export function useAdminNotifications() {
     pages: 0
   };
 
+  // Force reset loading states if stuck
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (fetchLoading && !forcedResetRef.current) {
+        console.log('⚠️ Forced reset - fetchLoading stuck');
+        setFetchLoading(false);
+        forcedResetRef.current = true;
+        
+        // Reset the flag after a while
+        setTimeout(() => {
+          forcedResetRef.current = false;
+        }, 1000);
+      }
+    }, 2000);
+    
+    return () => clearInterval(interval);
+  }, [fetchLoading]); // Include fetchLoading in dependencies
+
   // Silent refresh function (doesn't affect fetchLoading)
   const silentRefresh = useCallback(async () => {
     if (refreshInProgress.current || !isMountedRef.current) return;
@@ -155,21 +175,23 @@ export function useAdminNotifications() {
       return { success: false, message: 'Component unmounted' };
     }
 
-    console.log('📥 fetchNotifications started with filters:', filters);
+    const currentFetchId = ++fetchCountRef.current;
+    console.log(`📥 fetchNotifications #${currentFetchId} started with filters:`, filters);
+    
     setFetchLoading(true);
     
     // Safety timeout to force reset loading state
     const safetyTimeout = setTimeout(() => {
       if (isMountedRef.current) {
-        console.log('⚠️ Safety timeout - forcing fetchLoading to false');
+        console.log(`⚠️ Safety timeout #${currentFetchId} - forcing fetchLoading to false`);
         setFetchLoading(false);
       }
-    }, 5000);
+    }, 3000);
     
     try {
       const result = await AdminNotificationsService.getNotifications(filters);
       
-      console.log('📥 fetchNotifications result:', result);
+      console.log(`📥 fetchNotifications #${currentFetchId} result:`, result);
       clearTimeout(safetyTimeout);
       
       if (!isMountedRef.current) {
@@ -177,8 +199,13 @@ export function useAdminNotifications() {
       }
 
       if (result.success && result.data) {
-        // Trigger silent refresh in background
-        silentRefresh().catch(console.error);
+        // Trigger silent refresh in background without affecting loading
+        Promise.resolve().then(() => {
+          if (isMountedRef.current) {
+            silentRefresh().catch(() => {});
+          }
+        });
+        
         return { success: true, data: result.data };
       }
       return { success: false, message: result.message };
@@ -187,20 +214,31 @@ export function useAdminNotifications() {
       const errorMessage = error instanceof Error ? error.message : 'Failed to fetch notifications';
       return { success: false, message: errorMessage };
     } finally {
-      console.log('📥 fetchNotifications finally block - setting fetchLoading to false');
+      console.log(`📥 fetchNotifications #${currentFetchId} finally block - setting fetchLoading to false`);
       clearTimeout(safetyTimeout);
       
+      // Multiple attempts to set loading to false
       if (isMountedRef.current) {
-        // Use setTimeout to ensure this runs after any other state updates
+        // Immediate attempt
+        setFetchLoading(false);
+        
+        // Queue microtask attempt
+        queueMicrotask(() => {
+          if (isMountedRef.current) {
+            setFetchLoading(false);
+          }
+        });
+        
+        // Timeout attempt
         setTimeout(() => {
           if (isMountedRef.current) {
             setFetchLoading(false);
-            console.log('✅ fetchLoading set to false');
+            console.log(`✅ fetchLoading #${currentFetchId} set to false (timeout backup)`);
           }
-        }, 100);
+        }, 50);
       }
     }
-  }, [silentRefresh]);
+  }, [silentRefresh]); // Remove fetchLoading from dependencies
 
   // Fetch unread count
   const fetchUnreadCount = useCallback(async (): Promise<FetchUnreadResult> => {
@@ -242,11 +280,12 @@ export function useAdminNotifications() {
       clearTimeout(safetyTimeout);
       
       if (isMountedRef.current) {
-        setTimeout(() => {
+        setFetchLoading(false);
+        queueMicrotask(() => {
           if (isMountedRef.current) {
             setFetchLoading(false);
           }
-        }, 100);
+        });
       }
     }
   }, [refreshUnreadCache]);
@@ -295,7 +334,11 @@ export function useAdminNotifications() {
 
       if (result.success) {
         // Trigger silent refresh
-        silentRefresh().catch(console.error);
+        Promise.resolve().then(() => {
+          if (isMountedRef.current) {
+            silentRefresh().catch(() => {});
+          }
+        });
         window.dispatchEvent(new Event('notification-updated'));
         return { success: true, data: result.data };
       }
@@ -310,12 +353,12 @@ export function useAdminNotifications() {
     } finally {
       clearTimeout(safetyTimeout);
       if (isMountedRef.current) {
-        setTimeout(() => {
+        setMarkReadLoading(false);
+        queueMicrotask(() => {
           if (isMountedRef.current) {
             setMarkReadLoading(false);
-            console.log('✅ markReadLoading set to false');
           }
-        }, 100);
+        });
       }
     }
   }, [silentRefresh]);
@@ -361,11 +404,12 @@ export function useAdminNotifications() {
     } finally {
       clearTimeout(safetyTimeout);
       if (isMountedRef.current) {
-        setTimeout(() => {
+        setMarkReadLoading(false);
+        queueMicrotask(() => {
           if (isMountedRef.current) {
             setMarkReadLoading(false);
           }
-        }, 100);
+        });
       }
     }
   }, [unreadCount, silentRefresh]);
@@ -407,11 +451,12 @@ export function useAdminNotifications() {
     } finally {
       clearTimeout(safetyTimeout);
       if (isMountedRef.current) {
-        setTimeout(() => {
+        setDeleteLoading(false);
+        queueMicrotask(() => {
           if (isMountedRef.current) {
             setDeleteLoading(false);
           }
-        }, 100);
+        });
       }
     }
   }, [silentRefresh]);
@@ -453,11 +498,12 @@ export function useAdminNotifications() {
     } finally {
       clearTimeout(safetyTimeout);
       if (isMountedRef.current) {
-        setTimeout(() => {
+        setDeleteLoading(false);
+        queueMicrotask(() => {
           if (isMountedRef.current) {
             setDeleteLoading(false);
           }
-        }, 100);
+        });
       }
     }
   }, [silentRefresh]);
@@ -476,13 +522,13 @@ export function useAdminNotifications() {
     unreadCount,
     pagination, 
     fetchNotifications,
-    fetchUnreadCount,
+    fetchUnreadCount, 
     getNotificationDetails,
     markAsRead,
     markAllAsRead,
     deleteNotification,
     deleteAllRead, 
-    refreshNotifications: silentRefresh, // Use silentRefresh instead of direct cache refresh
+    refreshNotifications: silentRefresh,
     refreshUnread: refreshUnreadCache
   };
 }

@@ -58,6 +58,7 @@ export function useAdminFeedback() {
   const isMountedRef = useRef(true);
   const refreshInProgress = useRef(false);
   const statsFetchedRef = useRef(false);
+  const initialFetchDone = useRef(false);
 
   // Cache for feedback list
   const {
@@ -80,7 +81,7 @@ export function useAdminFeedback() {
     30 * 1000
   );
 
-  // Cache for stats - useDataCache but don't auto-fetch
+  // Cache for stats
   const {
     data: stats,
     refresh: refreshStatsCache
@@ -153,11 +154,7 @@ export function useAdminFeedback() {
       }
 
       if (result.success && result.data) {
-        // Update cache with new data
-        if (result.data) {
-          // Manually update cache or trigger refresh
-          await refreshFeedbackCache();
-        }
+        // DON'T refresh cache here - let the component handle it via silentRefresh if needed
         return { success: true, data: result.data };
       }
       return { success: false, message: result.message };
@@ -178,7 +175,7 @@ export function useAdminFeedback() {
         }, 100);
       }
     }
-  }, [refreshFeedbackCache]);
+  }, []); // Remove refreshFeedbackCache dependency
 
   const fetchStats = useCallback(async (): Promise<FetchStatsResult> => {
     // Prevent multiple stats calls
@@ -327,6 +324,14 @@ export function useAdminFeedback() {
       }
     }
   }, [silentRefresh]);
+
+  // Initial fetch for feedback list
+  useEffect(() => {
+    if (!initialFetchDone.current && !feedbackData) {
+      initialFetchDone.current = true;
+      fetchFeedback({ limit: 10 });
+    }
+  }, [feedbackData, fetchFeedback]);
 
   // Cleanup on unmount
   useEffect(() => {

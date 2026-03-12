@@ -37,9 +37,9 @@ const Feedback = () => {
   const fetchInProgress = useRef(false);
   const searchTimeoutRef = useRef<number|undefined>(undefined);
   const statusTimeoutRef = useRef<number|undefined>(undefined);
-
+ const initialFetchDone = useRef(false);
   // Fetch stats once on mount
-  useEffect(() => {
+  useEffect(() => { 
     fetchStats();
     return () => {
       isMounted.current = false;
@@ -82,29 +82,28 @@ const Feedback = () => {
     };
   }, [statusFilter]);
 
-  // Fetch feedback when dependencies change - USING HARDCODED LIMIT
   useEffect(() => {
-    const loadFeedback = async () => {
-      if (fetchInProgress.current) return;
-      
-      fetchInProgress.current = true;
-      
-      try {
-        await fetchFeedback({ 
-          page: currentPage, 
-          limit: 10, // Hardcoded limit to prevent infinite loops
-          status: debouncedStatus || undefined,
-          search: debouncedSearch || undefined
-        });
-      } finally {
-        fetchInProgress.current = false;
-        setInitialLoad(false);
-      }
-    };
+  const loadFeedback = async () => {
+    if (fetchInProgress.current || initialFetchDone.current) return;
+    
+    fetchInProgress.current = true;
+    initialFetchDone.current = true;
+    
+    try {
+      await fetchFeedback({ 
+        page: currentPage, 
+        limit: 10,
+        status: debouncedStatus || undefined,
+        search: debouncedSearch || undefined
+      });
+    } finally {
+      fetchInProgress.current = false;
+      setInitialLoad(false);
+    }
+  };
  
-    loadFeedback();
-  }, [currentPage, debouncedStatus, debouncedSearch, fetchFeedback]); // Removed pagination.limit
-
+  loadFeedback();
+}, [currentPage, debouncedStatus, debouncedSearch, fetchFeedback]);
   // Safety effect to prevent infinite loading
   useEffect(() => {
     let timeoutId: number;
