@@ -57,6 +57,19 @@ export interface FeedbackResponse {
     };
   };
 }
+export interface FeedbackListResponse {
+  success: boolean;
+  message: string;
+  data?: {
+    feedback: Feedback[];
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      pages: number;
+    };
+  };
+}
 
 export interface FeedbackDetailsResponse {
   success: boolean;

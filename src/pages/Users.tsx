@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+// pages/Users.tsx
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useUsers } from '../hooks/useUsers';
 import UsersModal from '../components/UsersModal';
 import LoadingScreen from '../components/LoadingScreen';
@@ -7,29 +8,74 @@ import type { UserDetails } from '../services/admin.users.service';
 import './styles/Users.css';
 
 const Users = () => {
-  const { users, loading, error, pagination, fetchUsers, getUserDetails } = useUsers();
+  const { users, loading, error, pagination, fetchUsers, getUserDetails, setPagination } = useUsers(10);
+  
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserDetails | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+  const [initialLoad, setInitialLoad] = useState(true);
+  
+  // Refs to prevent multiple requests
+  const fetchInProgress = useRef(false);
+  const searchTimeoutRef = useRef<number | undefined>(undefined) ;
 
-  // Use useCallback to memoize fetchUsers function
-  const fetchUsersCallback = useCallback((page: number, search?: string) => {
-    fetchUsers({ 
-      page, 
-      limit: pagination.limit, 
-      search: search || undefined 
-    });
-  }, [fetchUsers, pagination.limit]);
-
+  // Debounce search term
   useEffect(() => {
-    fetchUsersCallback(pagination.page, searchTerm);
-  }, [pagination.page, searchTerm, fetchUsersCallback]);
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
 
-  const handleSearch = () => {
-    fetchUsersCallback(1, searchTerm);
-  };
+    searchTimeoutRef.current = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 500); // 500ms debounce
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchTerm]);
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    if (!fetchInProgress.current) {
+      setPagination(prev => ({ ...prev, page: 1 }));
+    }
+  }, [debouncedSearch, setPagination]);
+
+  // Fetch users when page or debounced search changes
+  useEffect(() => {
+    const loadUsers = async () => {
+      // Prevent multiple simultaneous requests
+      if (fetchInProgress.current) return;
+      
+      fetchInProgress.current = true;
+      
+      try {
+        await fetchUsers({ 
+          page: pagination.page, 
+          limit: pagination.limit, 
+          search: debouncedSearch || undefined 
+        });
+      } finally {
+        fetchInProgress.current = false;
+        setInitialLoad(false);
+      }
+    };
+    
+    loadUsers();
+  }, [pagination.page, pagination.limit, debouncedSearch, fetchUsers]);
+
+  const handleSearch = useCallback(() => {
+    // Immediate search on button click
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    setDebouncedSearch(searchTerm);
+  }, [searchTerm]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -37,21 +83,26 @@ const Users = () => {
     }
   };
 
-  const handlePageChange = (newPage: number) => {
-    fetchUsersCallback(newPage, searchTerm);
-  };
+  const handlePageChange = useCallback((newPage: number) => {
+    if (newPage === pagination.page || fetchInProgress.current) return;
+    setPagination(prev => ({ ...prev, page: newPage }));
+  }, [pagination.page, setPagination]);
 
   const handleViewUser = async (userId: string) => {
+    // Prevent opening same user multiple times
+    if (selectedRowId === userId) return;
+    
     setSelectedRowId(userId);
     setModalLoading(true);
     setShowModal(true);
 
     try {
       const result = await getUserDetails(userId);
-      
       if (result.success && result.data) {
         setSelectedUser(result.data);
       } else {
+        // Show error toast or message
+        console.error('Failed to load user details:', result.message);
         setShowModal(false);
         setSelectedUser(null);
       }
@@ -73,27 +124,34 @@ const Users = () => {
     setShowModal(false);
     setTimeout(() => {
       setSelectedUser(null);
+      setSelectedRowId(null);
     }, 300);
   };
 
-  const clearSearch = () => {
+  const clearSearch = useCallback(() => {
     setSearchTerm('');
-    fetchUsersCallback(1, '');
-  };
+    setDebouncedSearch('');
+    setPagination(prev => ({ ...prev, page: 1 }));
+  }, [setPagination]);
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch {
+      return 'Invalid date';
+    }
   };
 
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
       case 'ACTIVE': return 'users-badge users-badge-active';
       case 'SUSPENDED': return 'users-badge users-badge-suspended';
-      case 'DISABLED': return 'users-badge users-badge-disabled';
+      case 'DISABLED': 
+      case 'BANNED': return 'users-badge users-badge-banned';
       default: return 'users-badge users-badge-inactive';
     }
   };
@@ -102,7 +160,7 @@ const Users = () => {
     return role === 'GROUP_ADMIN' ? 'users-badge users-badge-admin' : 'users-badge users-badge-user';
   };
 
-  if (loading && users.length === 0) {
+  if (initialLoad && loading) {
     return <LoadingScreen message="Loading users..." fullScreen />;
   }
 
@@ -111,7 +169,7 @@ const Users = () => {
       <div className="users-container">
         {/* Header */}
         <div className="users-header">
-          <div>
+          <div className="users-header-left">
             <h1 className="users-title">Manage Users</h1>
             <p className="users-subtitle">View and manage system users</p>
           </div>
@@ -128,19 +186,26 @@ const Users = () => {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onKeyPress={handleKeyPress}
                 className="users-search-input"
+                aria-label="Search users"
               />
-              <button onClick={handleSearch} className="users-search-btn">
-                Search
+              <button 
+                onClick={handleSearch} 
+                className="users-search-btn" 
+                disabled={loading || searchTerm === debouncedSearch}
+              >
+                {loading ? 'Searching...' : 'Search'}
               </button>
             </div>
           </div>
         </div>
 
         {/* Error Display */}
-        {error && <ErrorDisplay message={error} />}
+        {error && <ErrorDisplay message={error} onRetry={() => {
+          fetchUsers({ page: pagination.page, limit: pagination.limit, search: debouncedSearch });
+        }} />}
 
         {/* Users Table or Empty State */}
-        {users.length === 0 ? (
+        {users.length === 0 && !loading ? (
           <div className="users-empty">
             <div className="users-empty-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -150,11 +215,11 @@ const Users = () => {
             </div>
             <h3 className="users-empty-title">No users found</h3>
             <p className="users-empty-message">
-              {searchTerm 
-                ? "No users match your current search. Try adjusting your search terms."
+              {debouncedSearch 
+                ? `No users match "${debouncedSearch}". Try adjusting your search terms.`
                 : "There are no users in the system yet."}
             </p>
-            {searchTerm && (
+            {debouncedSearch && (
               <button className="users-empty-btn" onClick={clearSearch}>
                 Clear Search
               </button>
@@ -182,7 +247,7 @@ const Users = () => {
                     <tr 
                       key={user.id} 
                       onClick={() => handleRowClick(user.id)}
-                      className={`users-table-row ${selectedRowId === user.id ? 'selected' : ''}`}
+                      className={`users-table-row ${selectedRowId === user.id ? 'selected' : ''} ${loading ? 'loading' : ''}`}
                       style={{ cursor: 'pointer' }}
                     >
                       <td>
@@ -191,13 +256,13 @@ const Users = () => {
                             {user.avatarUrl ? (
                               <img src={user.avatarUrl} alt={user.fullName} />
                             ) : (
-                              <span>{user.fullName.charAt(0).toUpperCase()}</span>
+                              <span>{user.fullName?.charAt(0).toUpperCase() || '?'}</span>
                             )}
                           </div>
                           <span className="users-user-name">{user.fullName}</span>
                         </div>
                       </td>
-                      <td>{user.email}</td>
+                      <td className="users-email">{user.email}</td>
                       <td>
                         <span className={getRoleBadgeClass(user.role)}>
                           {user.role === 'GROUP_ADMIN' ? 'Group Admin' : 'User'}
@@ -218,7 +283,7 @@ const Users = () => {
                           {user.tasksCompleted || 0}
                         </span>
                       </td>
-                      <td>{formatDate(user.createdAt)}</td>
+                      <td className="users-date">{formatDate(user.createdAt)}</td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <button
                           className="users-view-btn"
@@ -226,6 +291,8 @@ const Users = () => {
                             e.stopPropagation();
                             handleViewUser(user.id);
                           }}
+                          disabled={modalLoading && selectedRowId === user.id}
+                          aria-label={`View details for ${user.fullName}`}
                         >
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <circle cx="12" cy="12" r="3" />
@@ -245,21 +312,29 @@ const Users = () => {
               <div className="users-pagination">
                 <button
                   className="users-pagination-btn"
-                  disabled={pagination.page === 1}
+                  disabled={pagination.page === 1 || loading}
                   onClick={() => handlePageChange(pagination.page - 1)}
                 >
                   Previous
                 </button>
-                <span className="users-pagination-info">
-                  Page {pagination.page} of {pagination.pages}
-                </span>
+                <div className="users-pagination-info">
+                  <span>Page {pagination.page} of {pagination.pages}</span>
+                  <span className="users-pagination-total">(Total: {pagination.total} users)</span>
+                </div>
                 <button
                   className="users-pagination-btn"
-                  disabled={pagination.page === pagination.pages}
+                  disabled={pagination.page === pagination.pages || loading}
                   onClick={() => handlePageChange(pagination.page + 1)}
                 >
                   Next
                 </button>
+              </div>
+            )}
+
+            {/* Loading overlay for table updates */}
+            {loading && (
+              <div className="users-loading-overlay">
+                <div className="users-spinner"></div>
               </div>
             )}
           </>

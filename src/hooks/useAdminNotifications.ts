@@ -1,200 +1,221 @@
-import { useState, useCallback } from 'react';
+// hooks/useAdminNotifications.ts
+import { useCallback, useState } from 'react';
 import { AdminNotificationsService } from '../services/admin.notifications.service';
-import type { AdminNotification, NotificationFilters } from '../services/admin.notifications.service';
+import { useDataCache } from './useDataCache';
+import type { 
+  AdminNotification, 
+  NotificationFilters,
+  NotificationsResponse,
+ 
+} from '../services/admin.notifications.service';
+
+interface NotificationsCacheData {
+  notifications: AdminNotification[];
+  unreadCount: number;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
+}
+
+interface FetchNotificationsResult {
+  success: boolean;
+  data?: NotificationsResponse['data'];
+  message?: string;
+}
+
+interface FetchUnreadResult {
+  success: boolean;
+  count?: number;
+  message?: string;
+}
+
+interface FetchDetailsResult {
+  success: boolean;
+  data?: AdminNotification;
+  message?: string;
+}
+
+interface MarkReadResult {
+  success: boolean;
+  data?: AdminNotification;
+  message?: string;
+}
+
+interface MarkAllReadResult {
+  success: boolean;
+  count?: number;
+  message?: string;
+}
+
+interface DeleteResult {
+  success: boolean;
+  message?: string;
+  data?: { count?: number };
+}
 
 export function useAdminNotifications() {
-  const [notifications, setNotifications] = useState<AdminNotification[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [pagination, setPagination] = useState({
+  // Local state for optimistic updates
+  const [localUnreadCount, setLocalUnreadCount] = useState<number>(0);
+
+  // Cache for notifications list
+  const {
+    data: notificationsData,
+    loading,
+    error,
+    refresh: refreshNotifications
+  } = useDataCache<NotificationsCacheData>(
+    'admin-notifications',
+    async () => {
+      const result = await AdminNotificationsService.getNotifications({ limit: 10 });
+      if (result.success && result.data) {
+        return {
+          notifications: result.data.notifications,
+          unreadCount: result.data.unreadCount,
+          pagination: result.data.pagination
+        };
+      }
+      throw new Error(result.message || 'Failed to fetch notifications');
+    },
+    30 * 1000
+  );
+
+  // Cache for unread count
+  const {
+    data: unreadData,
+    refresh: refreshUnread
+  } = useDataCache<{ count: number }>(
+    'admin-notifications-unread',
+    async () => {
+      const result = await AdminNotificationsService.getUnreadCount();
+      if (result.success && result.data) {
+        return result.data;
+      }
+      throw new Error(result.message || 'Failed to fetch unread count');
+    },
+    30 * 1000
+  );
+
+  const notifications = notificationsData?.notifications || [];
+  const unreadCount = unreadData?.count ?? localUnreadCount;
+  const pagination = notificationsData?.pagination || {
     page: 1,
     limit: 10,
     total: 0,
     pages: 0
-  });
+  };
 
-  const fetchNotifications = useCallback(async (filters?: NotificationFilters) => {
-    setLoading(true);
-    setError(null);
-
+  const fetchNotifications = useCallback(async (filters?: NotificationFilters): Promise<FetchNotificationsResult> => {
     try {
       const result = await AdminNotificationsService.getNotifications(filters);
-      
       if (result.success && result.data) {
-        setNotifications(result.data.notifications);
-        setUnreadCount(result.data.unreadCount);
-        setPagination(result.data.pagination);
+        await refreshNotifications();
+        await refreshUnread();
         return { success: true, data: result.data };
-      } else {
-        setError(result.message || 'Failed to load notifications');
-        return { success: false, message: result.message };
       }
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'An error occurred';
-      setError(errorMessage);
+      return { success: false, message: result.message };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to fetch notifications';
       return { success: false, message: errorMessage };
-    } finally {
-      setLoading(false);
     }
-  }, []);
+  }, [refreshNotifications, refreshUnread]);
 
-  const fetchUnreadCount = useCallback(async () => {
+  const fetchUnreadCount = useCallback(async (): Promise<FetchUnreadResult> => {
     try {
       const result = await AdminNotificationsService.getUnreadCount();
-      
       if (result.success && result.data) {
-        setUnreadCount(result.data.count);
+        await refreshUnread();
         return { success: true, count: result.data.count };
       }
       return { success: false, message: result.message };
-    } catch (error: unknown) {
+    } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load count';
       return { success: false, message: errorMessage };
     }
-  }, []);
+  }, [refreshUnread]);
 
-  const getNotificationDetails = useCallback(async (notificationId: string) => {
-    setLoading(true);
-    setError(null);
-
+  const getNotificationDetails = useCallback(async (notificationId: string): Promise<FetchDetailsResult> => {
     try {
       const result = await AdminNotificationsService.getNotificationById(notificationId);
-      
       if (result.success && result.data) {
         return { success: true, data: result.data };
-      } else {
-        setError(result.message || 'Failed to load notification');
-        return { success: false, message: result.message };
       }
-    } catch (error: unknown) {
+      return { success: false, message: result.message };
+    } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load details';
-      setError(errorMessage);
       return { success: false, message: errorMessage };
-    } finally {
-      setLoading(false);
     }
   }, []);
 
-  const markAsRead = useCallback(async (notificationId: string) => {
-    setLoading(true);
-    setError(null);
+  const markAsRead = useCallback(async (notificationId: string): Promise<MarkReadResult> => {
+    // Optimistic update
+    setLocalUnreadCount(prev => Math.max(0, prev - 1));
 
     try {
       const result = await AdminNotificationsService.markAsRead(notificationId);
-      
       if (result.success) {
-        // Update local state
-        setNotifications(prev => 
-          prev.map(n => 
-            n.id === notificationId ? { ...n, read: true } : n
-          )
-        );
-        setUnreadCount(prev => Math.max(0, prev - 1));
+        await Promise.all([refreshNotifications(), refreshUnread()]);
         return { success: true, data: result.data };
-      } else {
-        setError(result.message || 'Failed to mark as read');
-        return { success: false, message: result.message };
       }
-    } catch (error: unknown) {
+      // Revert on failure
+      setLocalUnreadCount(prev => prev + 1);
+      return { success: false, message: result.message };
+    } catch (error) {
+      // Revert on error
+      setLocalUnreadCount(prev => prev + 1);
       const errorMessage = error instanceof Error ? error.message : 'Failed to mark as read';
-      setError(errorMessage);
       return { success: false, message: errorMessage };
-    } finally {
-      setLoading(false);
     }
-  }, []);
+  }, [refreshNotifications, refreshUnread]);
 
-  const markAllAsRead = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const markAllAsRead = useCallback(async (): Promise<MarkAllReadResult> => {
+    const previousCount = unreadCount;
+    setLocalUnreadCount(0);
 
     try {
       const result = await AdminNotificationsService.markAllAsRead();
-      
       if (result.success) {
-        // Update local state
-        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-        setUnreadCount(0);
+        await Promise.all([refreshNotifications(), refreshUnread()]);
         return { success: true, count: result.data?.count };
-      } else {
-        setError(result.message || 'Failed to mark all as read');
-        return { success: false, message: result.message };
       }
-    } catch (error: unknown) {
+      setLocalUnreadCount(previousCount);
+      return { success: false, message: result.message };
+    } catch (error) {
+      setLocalUnreadCount(previousCount);
       const errorMessage = error instanceof Error ? error.message : 'Failed to mark all';
-      setError(errorMessage);
       return { success: false, message: errorMessage };
-    } finally {
-      setLoading(false);
     }
-  }, []);
+  }, [unreadCount, refreshNotifications, refreshUnread]);
 
-  const deleteNotification = useCallback(async (notificationId: string) => {
-    setLoading(true);
-    setError(null);
-
+  const deleteNotification = useCallback(async (notificationId: string): Promise<DeleteResult> => {
     try {
       const result = await AdminNotificationsService.deleteNotification(notificationId);
-      
       if (result.success) {
-        // Update local state
-        const deletedNotification = notifications.find(n => n.id === notificationId);
-        setNotifications(prev => prev.filter(n => n.id !== notificationId));
-        
-        if (deletedNotification && !deletedNotification.read) {
-          setUnreadCount(prev => Math.max(0, prev - 1));
-        }
-        
+        await Promise.all([refreshNotifications(), refreshUnread()]);
         return { success: true };
-      } else {
-        setError(result.message || 'Failed to delete notification');
-        return { success: false, message: result.message };
       }
-    } catch (error: unknown) {
+      return { success: false, message: result.message };
+    } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to delete';
-      setError(errorMessage);
       return { success: false, message: errorMessage };
-    } finally {
-      setLoading(false);
     }
-  }, [notifications]);
+  }, [refreshNotifications, refreshUnread]);
 
-  const deleteAllRead = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
+  const deleteAllRead = useCallback(async (): Promise<DeleteResult> => {
     try {
       const result = await AdminNotificationsService.deleteAllRead();
-      
       if (result.success) {
-        // Remove all read notifications from local state
-        setNotifications(prev => prev.filter(n => !n.read));
-        return { success: true, count: result.data?.count };
-      } else {
-        setError(result.message || 'Failed to delete read notifications');
-        return { success: false, message: result.message };
+        await Promise.all([refreshNotifications(), refreshUnread()]);
+        return { success: true, data: result.data };
       }
-    } catch (error: unknown) {
+      return { success: false, message: result.message };
+    } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to delete';
-      setError(errorMessage);
       return { success: false, message: errorMessage };
-    } finally {
-      setLoading(false);
     }
-  }, []);
-
-  const reset = useCallback(() => {
-    setNotifications([]);
-    setError(null);
-    setUnreadCount(0);
-    setPagination({
-      page: 1,
-      limit: 10,
-      total: 0,
-      pages: 0
-    });
-  }, []);
+  }, [refreshNotifications, refreshUnread]);
 
   return {
     notifications,
@@ -209,6 +230,7 @@ export function useAdminNotifications() {
     markAllAsRead,
     deleteNotification,
     deleteAllRead,
-    reset
+    refreshNotifications,
+    refreshUnread
   };
 }

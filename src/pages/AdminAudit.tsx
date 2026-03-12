@@ -1,12 +1,12 @@
 // pages/AdminAudit.tsx
-import React, { useState, useEffect, useCallback } from 'react';
-import { AdminAuditService } from '../services/admin.audit.service';
-import type { AuditLog, AuditStatisticsResponse } from '../services/admin.audit.service';
+import React, { useState, useEffect } from 'react';
+import { useAdminAudit } from '../hooks/useAdminAudit';
 import AuditModal from '../components/AuditModal';
 import LoadingScreen from '../components/LoadingScreen';
 import ErrorDisplay from '../components/ErrorDisplay';
+import { AdminAuditService } from '../services/admin.audit.service';
+import type { AuditLog } from '../services/admin.audit.service';
 import './styles/AdminAudit.css';
-
 
 interface ExportFilterParams {
   search?: string;
@@ -15,7 +15,8 @@ interface ExportFilterParams {
   startDate?: string;
   endDate?: string;
 }
-interface FetchLogsParams {
+
+interface FetchParams {
   limit: number;
   offset: number;
   search?: string;
@@ -24,18 +25,19 @@ interface FetchLogsParams {
   startDate?: string;
   endDate?: string;
 }
+
 const AdminAudit = () => {
-  const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<AuditStatisticsResponse['statistics'] | null>(null);
-  const [pagination, setPagination] = useState({
-    total: 0,
-    page: 1,
-    limit: 20,
-    pages: 1,
-    hasMore: false
-  });
+  const {
+    logs,
+    loading,
+    error,
+    stats,
+    pagination,
+    fetchLogs,
+    fetchStatistics,
+    getLogById,
+    setPagination,
+  } = useAdminAudit(20);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -44,6 +46,7 @@ const AdminAudit = () => {
   const [dateRange, setDateRange] = useState<'today' | 'week' | 'month' | 'custom'>('week');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [initialLoad, setInitialLoad] = useState(true);
 
   // Modal
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
@@ -51,176 +54,81 @@ const AdminAudit = () => {
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
-  // Define fetchLogs with useCallback
-  // Update your fetchLogs function with proper date handling
+  // Fetch logs when filters or pagination change
+  useEffect(() => {
+    const fetchData = async () => {
+      const params: FetchParams = {
+        limit: pagination.limit,
+        offset: (pagination.page - 1) * pagination.limit,
+      };
 
-const fetchLogs = useCallback(async () => {
-  setLoading(true);
-  try {
-    const filterParams: FetchLogsParams = {
-      limit: pagination.limit,
-      offset: (pagination.page - 1) * pagination.limit
+      if (searchTerm) params.search = searchTerm;
+      if (adminFilter) params.adminId = adminFilter;
+      if (actionFilter) params.action = actionFilter;
+
+      // Date range logic
+      if (dateRange === 'today') {
+        const start = new Date(); start.setHours(0,0,0,0);
+        const end = new Date(); end.setHours(23,59,59,999);
+        params.startDate = start.toISOString();
+        params.endDate = end.toISOString();
+      } else if (dateRange === 'week') {
+        const end = new Date(); end.setHours(23,59,59,999);
+        const start = new Date(); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0);
+        params.startDate = start.toISOString();
+        params.endDate = end.toISOString();
+      } else if (dateRange === 'month') {
+        const end = new Date(); end.setHours(23,59,59,999);
+        const start = new Date(); start.setDate(start.getDate() - 29); start.setHours(0,0,0,0);
+        params.startDate = start.toISOString();
+        params.endDate = end.toISOString();
+      } else if (dateRange === 'custom') {
+        if (startDate) {
+          const start = new Date(startDate); start.setHours(0,0,0,0);
+          params.startDate = start.toISOString();
+        }
+        if (endDate) {
+          const end = new Date(endDate); end.setHours(23,59,59,999);
+          params.endDate = end.toISOString();
+        }
+      }
+
+      await fetchLogs(params);
+      setInitialLoad(false);
     };
 
-    if (searchTerm) filterParams.search = searchTerm;
-    if (adminFilter) filterParams.adminId = adminFilter;
-    if (actionFilter) filterParams.action = actionFilter;
+    fetchData();
+  }, [pagination.page, pagination.limit, searchTerm, adminFilter, actionFilter, dateRange, startDate, endDate, fetchLogs]);
 
-    // Handle date range with proper timezone
-    if (dateRange === 'today') {
-      // Get start of today in local time
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      
-      // Get end of today in local time
-      const end = new Date();
-      end.setHours(23, 59, 59, 999);
-      
-      filterParams.startDate = start.toISOString();
-      filterParams.endDate = end.toISOString();
-      
-      console.log('Today range:', { 
-        start: filterParams.startDate, 
-        end: filterParams.endDate 
-      });
-      
-    } else if (dateRange === 'week') {
-      // Last 7 days (including today)
-      const end = new Date();
-      end.setHours(23, 59, 59, 999);
-      
-      const start = new Date();
-      start.setDate(start.getDate() - 6); // Last 7 days (today + 6 previous)
-      start.setHours(0, 0, 0, 0);
-      
-      filterParams.startDate = start.toISOString();
-      filterParams.endDate = end.toISOString();
-      
-      console.log('Week range:', { 
-        start: filterParams.startDate, 
-        end: filterParams.endDate 
-      });
-      
-    } else if (dateRange === 'month') {
-      // Last 30 days
-      const end = new Date();
-      end.setHours(23, 59, 59, 999);
-      
-      const start = new Date();
-      start.setDate(start.getDate() - 29); // Last 30 days
-      start.setHours(0, 0, 0, 0);
-      
-      filterParams.startDate = start.toISOString();
-      filterParams.endDate = end.toISOString();
-      
-    } else if (dateRange === 'custom') {
-      // For custom dates, ensure we cover full days
-      if (startDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        filterParams.startDate = start.toISOString();
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        filterParams.endDate = end.toISOString();
-      }
-    }
-
-    console.log('Fetching with params:', filterParams);
-    
-    const result = await AdminAuditService.getLogs(filterParams);
-    
-    if (result.success) {
-      console.log('Logs received:', result.logs?.length);
-      setLogs(result.logs || []);
-      setPagination(prev => ({
-        total: result.pagination?.total || 0,
-        page: prev.page,
-        limit: prev.limit,
-        pages: Math.ceil((result.pagination?.total || 0) / prev.limit),
-        hasMore: result.pagination?.hasMore || false
-      }));
-      setError(null);
-    } else {
-      setError(result.message || 'Failed to load audit logs');
-    }
-  } catch (err) {
-    console.error('Error fetching logs:', err);
-    setError('Network error');
-  } finally {
-    setLoading(false);
-  }
-}, [pagination.page, pagination.limit, searchTerm, adminFilter, actionFilter, dateRange, startDate, endDate]);
-
-// Update fetchStatistics to use the same date filters
-const fetchStatistics = useCallback(async () => {
-  try {
-    // Create filter params for statistics based on current date range
-    const statsFilters: { startDate?: string; endDate?: string } = {};
-    
-    // Apply the same date logic as fetchLogs
-    if (dateRange === 'today') {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      const end = new Date();
-      end.setHours(23, 59, 59, 999);
-      statsFilters.startDate = start.toISOString();
-      statsFilters.endDate = end.toISOString();
-    } else if (dateRange === 'week') {
-      const end = new Date();
-      end.setHours(23, 59, 59, 999);
-      const start = new Date();
-      start.setDate(start.getDate() - 6);
-      start.setHours(0, 0, 0, 0);
-      statsFilters.startDate = start.toISOString();
-      statsFilters.endDate = end.toISOString();
-    } else if (dateRange === 'month') {
-      const end = new Date();
-      end.setHours(23, 59, 59, 999);
-      const start = new Date();
-      start.setDate(start.getDate() - 29);
-      start.setHours(0, 0, 0, 0);
-      statsFilters.startDate = start.toISOString();
-      statsFilters.endDate = end.toISOString();
-    } else if (dateRange === 'custom') {
-      if (startDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        statsFilters.startDate = start.toISOString();
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        statsFilters.endDate = end.toISOString();
-      }
-    }
-
-    console.log('Fetching stats with filters:', statsFilters);
-    
-    const result = await AdminAuditService.getStatistics(statsFilters);
-    if (result.success) {
-      setStats(result.statistics || null);
-    }
-  } catch (err) {
-    console.error('Error fetching statistics:', err);
-  }
-}, [dateRange, startDate, endDate]); // Add dependencies
-
-// Also update the useEffect to include fetchStatistics in dependencies
-useEffect(() => {
-  fetchLogs();
-  fetchStatistics();
-}, [fetchLogs, fetchStatistics]);
-
+  // Fetch statistics when date range changes
   useEffect(() => {
-    fetchLogs();
-    fetchStatistics();
-  }, [fetchLogs, fetchStatistics]);
+    const statsParams: { startDate?: string; endDate?: string } = {};
+    
+    if (dateRange === 'today') {
+      const start = new Date(); start.setHours(0,0,0,0);
+      const end = new Date(); end.setHours(23,59,59,999);
+      statsParams.startDate = start.toISOString();
+      statsParams.endDate = end.toISOString();
+    } else if (dateRange === 'week') {
+      const end = new Date(); end.setHours(23,59,59,999);
+      const start = new Date(); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0);
+      statsParams.startDate = start.toISOString();
+      statsParams.endDate = end.toISOString();
+    } else if (dateRange === 'month') {
+      const end = new Date(); end.setHours(23,59,59,999);
+      const start = new Date(); start.setDate(start.getDate() - 29); start.setHours(0,0,0,0);
+      statsParams.startDate = start.toISOString();
+      statsParams.endDate = end.toISOString();
+    } else if (dateRange === 'custom') {
+      if (startDate) statsParams.startDate = startDate;
+      if (endDate) statsParams.endDate = endDate;
+    }
+    
+    fetchStatistics(statsParams);
+  }, [dateRange, startDate, endDate, fetchStatistics]);
 
   const handleSearch = () => {
     setPagination(prev => ({ ...prev, page: 1 }));
-    // fetchLogs will be called by useEffect after page changes
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -239,15 +147,14 @@ useEffect(() => {
     setShowModal(true);
 
     try {
-      const result = await AdminAuditService.getLogById(logId);
-      
+      const result = await getLogById(logId);
       if (result.success && result.log) {
         setSelectedLog(result.log);
       } else {
         setShowModal(false);
         setSelectedLog(null);
       }
-    } catch (error) {
+    } catch (error) { 
       console.error('Error loading audit log:', error);
       setShowModal(false);
       setSelectedLog(null);
@@ -261,47 +168,44 @@ useEffect(() => {
     handleViewLog(logId);
   };
 
-const handleExport = async (format: 'json' | 'csv') => {
-  try {
-    const filterParams: ExportFilterParams = {};
-    
-    if (searchTerm) filterParams.search = searchTerm;
-    if (adminFilter) filterParams.adminId = adminFilter;
-    if (actionFilter) filterParams.action = actionFilter;
-    
-    if (dateRange === 'custom') {
-      if (startDate) filterParams.startDate = startDate;
-      if (endDate) filterParams.endDate = endDate;
-    }
+  const handleExport = async (format: 'json' | 'csv') => {
+    try {
+      const filterParams: ExportFilterParams = {};
+      if (searchTerm) filterParams.search = searchTerm;
+      if (adminFilter) filterParams.adminId = adminFilter;
+      if (actionFilter) filterParams.action = actionFilter;
+      if (dateRange === 'custom') {
+        if (startDate) filterParams.startDate = startDate;
+        if (endDate) filterParams.endDate = endDate;
+      }
 
-    const result = await AdminAuditService.exportLogs(format, filterParams);
-    
-    if (format === 'csv' && typeof result === 'string') {
-      const blob = new Blob([result], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `audit-logs-${new Date().toISOString().split('T')[0]}.csv`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } else if (typeof result === 'object' && result !== null && 'success' in result) {
-      const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `audit-logs-${new Date().toISOString().split('T')[0]}.json`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+      const result = await AdminAuditService.exportLogs(format, filterParams);
+
+      if (format === 'csv' && typeof result === 'string') {
+        const blob = new Blob([result], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `audit-logs-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      } else if (typeof result === 'object' && result !== null && 'success' in result) {
+        const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `audit-logs-${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      console.error('Error exporting logs:', err);
     }
-  } catch (err) {
-    console.error('Error exporting logs:', err);
-  }
-};
+  };
+
   const closeModal = () => {
     setShowModal(false);
-    setTimeout(() => {
-      setSelectedLog(null);
-    }, 300);
+    setTimeout(() => setSelectedLog(null), 300);
   };
 
   const clearFilters = () => {
@@ -314,7 +218,7 @@ const handleExport = async (format: 'json' | 'csv') => {
     setPagination(prev => ({ ...prev, page: 1 }));
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string): string => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -324,7 +228,7 @@ const handleExport = async (format: 'json' | 'csv') => {
     });
   };
 
-  const getActionIcon = (action: string) => {
+  const getActionIcon = (action: string): string => {
     const actionLower = action.toLowerCase();
     if (actionLower.includes('create')) return '➕';
     if (actionLower.includes('delete')) return '🗑️';
@@ -339,7 +243,7 @@ const handleExport = async (format: 'json' | 'csv') => {
     return '📝';
   };
 
-  const getActionClass = (action: string) => {
+  const getActionClass = (action: string): string => {
     const actionLower = action.toLowerCase();
     if (actionLower.includes('create')) return 'create';
     if (actionLower.includes('delete')) return 'delete';
@@ -354,7 +258,7 @@ const handleExport = async (format: 'json' | 'csv') => {
     return 'other';
   };
 
-  if (loading && logs.length === 0) {
+  if (initialLoad && loading && logs.length === 0) {
     return <LoadingScreen message="Loading audit logs..." fullScreen />;
   }
 
@@ -415,8 +319,8 @@ const handleExport = async (format: 'json' | 'csv') => {
                 onKeyPress={handleKeyPress}
                 className="audit-search-input"
               />
-              <button onClick={handleSearch} className="audit-search-btn">
-                Search
+              <button onClick={handleSearch} className="audit-search-btn" disabled={loading}>
+                {loading ? 'Searching...' : 'Search'}
               </button>
             </div>
           </div>
@@ -489,8 +393,15 @@ const handleExport = async (format: 'json' | 'csv') => {
         {/* Error Display */}
         {error && <ErrorDisplay message={error} />}
 
+        {/* Loading overlay for subsequent loads */}
+        {loading && !initialLoad && (
+          <div className="audit-loading-overlay">
+            <div className="audit-loading-spinner"></div>
+          </div>
+        )}
+
         {/* Audit Table or Empty State */}
-        {logs.length === 0 ? (
+        {logs.length === 0 && !loading ? (
           <div className="audit-empty">
             <div className="audit-empty-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -585,6 +496,7 @@ const handleExport = async (format: 'json' | 'csv') => {
                             e.stopPropagation();
                             handleViewLog(log.id);
                           }}
+                          disabled={modalLoading}
                         >
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <circle cx="12" cy="12" r="3" />
@@ -604,7 +516,7 @@ const handleExport = async (format: 'json' | 'csv') => {
               <div className="audit-pagination">
                 <button
                   className="audit-pagination-btn"
-                  disabled={pagination.page === 1}
+                  disabled={pagination.page === 1 || loading}
                   onClick={() => handlePageChange(pagination.page - 1)}
                 >
                   Previous
@@ -614,7 +526,7 @@ const handleExport = async (format: 'json' | 'csv') => {
                 </span>
                 <button
                   className="audit-pagination-btn"
-                  disabled={pagination.page === pagination.pages}
+                  disabled={pagination.page === pagination.pages || loading}
                   onClick={() => handlePageChange(pagination.page + 1)}
                 >
                   Next

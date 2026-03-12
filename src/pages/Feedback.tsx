@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+// pages/Feedback.tsx
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAdminFeedback } from '../hooks/useAdminFeedback';
 import FeedbackModal from '../components/FeedbackModal';
 import LoadingScreen from '../components/LoadingScreen';
@@ -10,7 +11,7 @@ const Feedback = () => {
   const {
     feedback,
     loading,
-    error, 
+    error,  
     stats,
     pagination,
     fetchFeedback,
@@ -25,62 +26,92 @@ const Feedback = () => {
   const [showModal, setShowModal] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+  const [initialLoad, setInitialLoad] = useState(true);
+  const isMounted = useRef(true);
+
+  // Fetch stats once on mount
+  useEffect(() => {
+    fetchStats();
+    return () => {
+      isMounted.current = false;
+    };
+  }, [fetchStats]);
 
   useEffect(() => {
-    fetchFeedback({ 
-      page: pagination.page, 
-      limit: pagination.limit,
-      status: statusFilter || undefined
-    });
-    fetchStats();
-  }, [fetchFeedback, fetchStats, pagination.page, pagination.limit, statusFilter]);
-
-  const handleSearch = () => {
+    let isActive = true;
+    
+    const loadFeedback = async () => {
+      try {
+        await fetchFeedback({ 
+          page: pagination.page, 
+          limit: pagination.limit,
+          status: statusFilter || undefined,
+          search: searchTerm || undefined
+        });
+        if (isActive && isMounted.current) {
+          setInitialLoad(false);
+        }
+      } catch (error) {
+        console.error('Error loading feedback:', error);
+      }
+    };
+ 
+    loadFeedback();
+    
+    return () => {
+      isActive = false;
+    };
+  }, [pagination.page, pagination.limit, statusFilter, searchTerm, fetchFeedback]); 
+  const handleSearch = useCallback(() => {
+    // Reset to page 1 when searching
     fetchFeedback({ 
       page: 1, 
       limit: pagination.limit, 
       search: searchTerm || undefined,
       status: statusFilter || undefined
     });
-  };
+  }, [fetchFeedback, pagination.limit, searchTerm, statusFilter]);
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleSearch();
     }
-  };
+  }, [handleSearch]);
 
-  const handlePageChange = (newPage: number) => {
+  const handlePageChange = useCallback((newPage: number) => {
     fetchFeedback({ 
       page: newPage, 
       limit: pagination.limit,
       search: searchTerm || undefined,
       status: statusFilter || undefined
     });
-  };
+  }, [fetchFeedback, pagination.limit, searchTerm, statusFilter]);
 
   const handleViewFeedback = async (feedbackId: string) => {
     setSelectedRowId(feedbackId);
     setModalLoading(true);
-    setShowModal(true); // Open modal FIRST
+    setShowModal(true);
 
     try {
       const result = await getFeedbackDetails(feedbackId);
       
-      if (result.success && result.data) {
+      if (result.success && result.data && isMounted.current) {
         setSelectedFeedback(result.data);
       } else {
-        // If failed, close modal
         setShowModal(false);
         setSelectedFeedback(null);
       }
     } catch (error) {
       console.error('Error loading feedback:', error);
-      setShowModal(false);
-      setSelectedFeedback(null);
+      if (isMounted.current) {
+        setShowModal(false);
+        setSelectedFeedback(null);
+      }
     } finally {
-      setModalLoading(false);
-      setSelectedRowId(null);
+      if (isMounted.current) {
+        setModalLoading(false);
+        setSelectedRowId(null);
+      }
     }
   };
 
@@ -92,8 +123,7 @@ const Feedback = () => {
     if (!selectedFeedback) return;
     
     const result = await updateStatus(selectedFeedback.id, status);
-    if (result.success) {
-      // Update the selected feedback with new data
+    if (result.success && isMounted.current) {
       if (result.data) {
         setSelectedFeedback(result.data);
       }
@@ -102,18 +132,18 @@ const Feedback = () => {
       fetchFeedback({ 
         page: pagination.page, 
         limit: pagination.limit,
-        status: statusFilter || undefined
+        status: statusFilter || undefined,
+        search: searchTerm || undefined
       });
-      
-      alert(`Feedback status updated to ${status} successfully!`);
     }
   };
 
   const closeModal = () => {
     setShowModal(false);
-    // Clear selected feedback after animation
     setTimeout(() => {
-      setSelectedFeedback(null);
+      if (isMounted.current) {
+        setSelectedFeedback(null);
+      }
     }, 300);
   };
 
@@ -157,36 +187,28 @@ const Feedback = () => {
     }
   };
 
- const getNextStatusOptions = (currentStatus: string): string[] => {
-  switch (currentStatus) {
-    case 'OPEN':
-      // Open can go to IN_PROGRESS, RESOLVED, or CLOSED
-      return ['IN_PROGRESS', 'RESOLVED', 'CLOSED'];
-    
-    case 'IN_PROGRESS':
-      // In Progress can ONLY go to RESOLVED
-      return ['RESOLVED'];
-    
-    case 'RESOLVED':
-      // Resolved can ONLY go to CLOSED
-      return ['CLOSED'];
-    
-    case 'CLOSED':
-      // Closed is final - no further updates
-      return [];
-    
-    default:
-      return [];
-  }
-};
-
-  const clearFilters = () => {
-    setSearchTerm('');
-    setStatusFilter('');
-    fetchFeedback({ page: 1, limit: pagination.limit });
+  const getNextStatusOptions = (currentStatus: string): string[] => {
+    switch (currentStatus) {
+      case 'OPEN':
+        return ['IN_PROGRESS', 'RESOLVED', 'CLOSED'];
+      case 'IN_PROGRESS':
+        return ['RESOLVED'];
+      case 'RESOLVED':
+        return ['CLOSED'];
+      case 'CLOSED':
+        return [];
+      default:
+        return [];
+    }
   };
 
-  if (loading && feedback.length === 0) {
+  const clearFilters = useCallback(() => {
+    setSearchTerm('');
+    setStatusFilter('');
+    // Fetch will trigger via useEffect
+  }, []);
+
+  if (initialLoad && loading && feedback.length === 0) {
     return <LoadingScreen message="Loading feedback..." fullScreen />;
   }
 
@@ -227,6 +249,13 @@ const Feedback = () => {
           </div>
         )}
 
+        {/* Loading overlay for subsequent loads */}
+        {loading && !initialLoad && (
+          <div className="feedback-loading-overlay">
+            <div className="feedback-loading-spinner"></div>
+          </div>
+        )}
+
         {/* Filters */}
         <div className="feedback-filters">
           <div className="feedback-search">
@@ -243,8 +272,12 @@ const Feedback = () => {
                 onKeyPress={handleKeyPress}
                 className="feedback-search-input"
               />
-              <button onClick={handleSearch} className="feedback-search-btn">
-                Search
+              <button 
+                onClick={handleSearch} 
+                className="feedback-search-btn"
+                disabled={loading}
+              >
+                {loading ? 'Searching...' : 'Search'}
               </button>
             </div>
           </div>
@@ -253,30 +286,35 @@ const Feedback = () => {
             <button
               className={`feedback-filter-btn ${!statusFilter ? 'active' : ''}`}
               onClick={() => setStatusFilter('')}
+              disabled={loading}
             >
               All
             </button>
             <button
               className={`feedback-filter-btn ${statusFilter === 'OPEN' ? 'active' : ''}`}
               onClick={() => setStatusFilter('OPEN')}
+              disabled={loading}
             >
               Open
             </button>
             <button
               className={`feedback-filter-btn ${statusFilter === 'IN_PROGRESS' ? 'active' : ''}`}
               onClick={() => setStatusFilter('IN_PROGRESS')}
+              disabled={loading}
             >
               In Progress
             </button>
             <button
               className={`feedback-filter-btn ${statusFilter === 'RESOLVED' ? 'active' : ''}`}
               onClick={() => setStatusFilter('RESOLVED')}
+              disabled={loading}
             >
               Resolved
             </button>
             <button
               className={`feedback-filter-btn ${statusFilter === 'CLOSED' ? 'active' : ''}`}
               onClick={() => setStatusFilter('CLOSED')}
+              disabled={loading}
             >
               Closed
             </button>
@@ -287,7 +325,7 @@ const Feedback = () => {
         {error && <ErrorDisplay message={error} />}
 
         {/* Feedback Table or Empty State */}
-        {feedback.length === 0 ? (
+        {feedback.length === 0 && !loading ? (
           <div className="feedback-empty">
             <div className="feedback-empty-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -372,6 +410,7 @@ const Feedback = () => {
                             e.stopPropagation();
                             handleViewFeedback(item.id);
                           }}
+                          disabled={modalLoading}
                         >
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <circle cx="12" cy="12" r="3" />
@@ -391,7 +430,7 @@ const Feedback = () => {
               <div className="feedback-pagination">
                 <button
                   className="feedback-pagination-btn"
-                  disabled={pagination.page === 1}
+                  disabled={pagination.page === 1 || loading}
                   onClick={() => handlePageChange(pagination.page - 1)}
                 >
                   Previous
@@ -401,7 +440,7 @@ const Feedback = () => {
                 </span>
                 <button
                   className="feedback-pagination-btn"
-                  disabled={pagination.page === pagination.pages}
+                  disabled={pagination.page === pagination.pages || loading}
                   onClick={() => handlePageChange(pagination.page + 1)}
                 >
                   Next

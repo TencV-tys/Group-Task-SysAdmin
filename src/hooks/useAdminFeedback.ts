@@ -1,155 +1,193 @@
-import { useState, useCallback } from 'react';
+// hooks/useAdminFeedback.ts
+import { useCallback } from 'react';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
-import type { Feedback, FeedbackFilters, FeedbackStats} from '../services/admin.feedback.service';
+import { useDataCache } from './useDataCache';
+import type { 
+  Feedback, 
+  FeedbackFilters,  
+  FeedbackStats, 
+  FeedbackDetails,
+  FeedbackListResponse 
+} from '../services/admin.feedback.service';
+
+interface FetchFeedbackResult {
+  success: boolean;
+  data?: {
+    feedback: Feedback[];
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      pages: number;
+    };
+  };
+  message?: string;
+}
+interface FeedbackListData {
+  feedback: Feedback[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
+}
+
+interface FetchFeedbackResult {
+  success: boolean;
+  data?: FeedbackListResponse['data'];
+  message?: string;
+}
+
+interface FetchStatsResult {
+  success: boolean;
+  data?: FeedbackStats;
+  message?: string;
+}
+
+interface FetchDetailsResult {
+  success: boolean;
+  data?: FeedbackDetails;
+  message?: string;
+}
+
+interface UpdateStatusResult {
+  success: boolean;
+  data?: FeedbackDetails;
+  message?: string;
+}
+
+interface DeleteResult {
+  success: boolean;
+  message?: string;
+}
 
 export function useAdminFeedback() {
-  const [feedback, setFeedback] = useState<Feedback[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<FeedbackStats | null>(null);
-  const [pagination, setPagination] = useState({
+  // Cache for feedback list
+  const {
+    data: feedbackData,
+    loading,
+    error,
+    refresh: refreshFeedback
+  } = useDataCache<FeedbackListData>(
+    'admin-feedback',
+    async () => {
+      const result = await AdminFeedbackService.getFeedback({ limit: 10 });
+      if (result.success && result.data) {
+        return {
+          feedback: result.data.feedback,
+          pagination: result.data.pagination
+        };
+      }
+      throw new Error(result.message || 'Failed to fetch feedback');
+    },
+    30 * 1000
+  );
+
+  // Cache for stats
+  const {
+    data: stats,
+    refresh: refreshStats
+  } = useDataCache<FeedbackStats>(
+    'admin-feedback-stats',
+    async () => {
+      const result = await AdminFeedbackService.getFeedbackStats();
+      if (result.success && result.data) {
+        return result.data;
+      }
+      throw new Error(result.message || 'Failed to fetch stats');
+    },
+    30 * 1000
+  );
+
+  const pagination = feedbackData?.pagination || {
     page: 1,
     limit: 10,
     total: 0,
     pages: 0
-  });
+  };
 
-  const fetchFeedback = useCallback(async (filters?: FeedbackFilters) => {
-    setLoading(true);
-    setError(null);
-
+  const fetchFeedback = useCallback(async (filters?: FeedbackFilters): Promise<FetchFeedbackResult> => {
     try {
       const result = await AdminFeedbackService.getFeedback(filters);
-      
       if (result.success && result.data) {
-        setFeedback(result.data.feedback);
-        setPagination(result.data.pagination);
-        return { success: true, data: result.data };
-      } else {
-        setError(result.message || 'Failed to load feedback');
-        return { success: false, message: result.message };
-      }
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'An error occurred';
-      setError(errorMessage);
-      return { success: false, message: errorMessage };
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const fetchStats = useCallback(async () => {
-    try {
-      const result = await AdminFeedbackService.getFeedbackStats();
-      
-      if (result.success && result.data) {
-        setStats(result.data);
+        await refreshFeedback();
         return { success: true, data: result.data };
       }
       return { success: false, message: result.message };
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to load stats';
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to fetch feedback';
       return { success: false, message: errorMessage };
     }
-  }, []);
+  }, [refreshFeedback]);
 
-  const getFeedbackDetails = useCallback(async (feedbackId: string) => {
-    setLoading(true);
-    setError(null);
+  const fetchStats = useCallback(async (): Promise<FetchStatsResult> => {
+    try {
+      const result = await AdminFeedbackService.getFeedbackStats();
+      if (result.success && result.data) {
+        await refreshStats();
+        return { success: true, data: result.data };
+      }
+      return { success: false, message: result.message };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to fetch stats';
+      return { success: false, message: errorMessage };
+    }
+  }, [refreshStats]);
 
+  const getFeedbackDetails = useCallback(async (feedbackId: string): Promise<FetchDetailsResult> => {
     try {
       const result = await AdminFeedbackService.getFeedbackById(feedbackId);
-      
       if (result.success && result.data) {
         return { success: true, data: result.data };
-      } else {
-        setError(result.message || 'Failed to load feedback details');
-        return { success: false, message: result.message };
       }
-    } catch (error: unknown) {
+      return { success: false, message: result.message };
+    } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load details';
-      setError(errorMessage);
       return { success: false, message: errorMessage };
-    } finally {
-      setLoading(false);
     }
   }, []);
 
-  const updateStatus = useCallback(async (feedbackId: string, status: string) => {
-    setLoading(true);
-    setError(null);
-
+  const updateStatus = useCallback(async (feedbackId: string, status: string): Promise<UpdateStatusResult> => {
     try {
       const result = await AdminFeedbackService.updateFeedbackStatus(feedbackId, status);
-      
       if (result.success) {
-        // Refresh the list
-        await fetchFeedback({ page: pagination.page, limit: pagination.limit });
-        await fetchStats();
+        await Promise.all([refreshFeedback(), refreshStats()]);
         return { success: true, data: result.data };
-      } else {
-        setError(result.message || 'Failed to update status');
-        return { success: false, message: result.message };
       }
-    } catch (error: unknown) {
+      return { success: false, message: result.message };
+    } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update';
-      setError(errorMessage);
       return { success: false, message: errorMessage };
-    } finally {
-      setLoading(false);
     }
-  }, [pagination.page, pagination.limit, fetchFeedback, fetchStats]);
+  }, [refreshFeedback, refreshStats]);
 
-  // ========== REMOVED addReply ==========
-
-  const deleteFeedback = useCallback(async (feedbackId: string) => {
-    setLoading(true);
-    setError(null);
-
+  const deleteFeedback = useCallback(async (feedbackId: string): Promise<DeleteResult> => {
     try {
       const result = await AdminFeedbackService.deleteFeedback(feedbackId);
-      
       if (result.success) {
-        // Refresh the list
-        await fetchFeedback({ page: pagination.page, limit: pagination.limit });
-        await fetchStats();
+        await Promise.all([refreshFeedback(), refreshStats()]);
         return { success: true };
-      } else {
-        setError(result.message || 'Failed to delete feedback');
-        return { success: false, message: result.message };
       }
-    } catch (error: unknown) {
+      return { success: false, message: result.message };
+    } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to delete';
-      setError(errorMessage);
       return { success: false, message: errorMessage };
-    } finally {
-      setLoading(false);
     }
-  }, [pagination.page, pagination.limit, fetchFeedback, fetchStats]);
-
-  const reset = useCallback(() => {
-    setFeedback([]);
-    setError(null);
-    setStats(null);
-    setPagination({
-      page: 1,
-      limit: 10,
-      total: 0,
-      pages: 0
-    });
-  }, []);
+  }, [refreshFeedback, refreshStats]);
 
   return {
-    feedback,
+    feedback: feedbackData?.feedback || [],
     loading,
     error,
-    stats,
+    stats: stats || null,
     pagination,
     fetchFeedback,
     fetchStats,
     getFeedbackDetails,
     updateStatus,
     deleteFeedback,
-    reset
+    refreshFeedback,
+    refreshStats
   };
 }
