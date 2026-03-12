@@ -695,7 +695,7 @@ const Reports: React.FC = () => {
         </div>
       )}
     </div>
-  );
+  ); 
 };
 
-export default Reports;
+export default Reports; 

@@ -97,6 +97,13 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     navigate('/admin/login');
   };
 
+  // Format role for display - hide SUPER_ADMIN
+  const getDisplayRole = (role: string | undefined) => {
+    if (!role) return 'Administrator';
+    if (role === 'SUPER_ADMIN') return 'Administrator'; // Hide SUPER_ADMIN
+    return role.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
+  };
+
   const menuItems = [
     {
       path: '/admin/dashboard',
@@ -150,7 +157,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
             <div className="logo">
               <FontAwesomeIcon icon={faCrown} size="lg" />
             </div>
-            {!collapsed && <span className="logo-text">GroupTask Admin</span>}
+            {!collapsed && <span className="logo-text">Admin Dashboard</span>}
           </div>
           <button className="toggle-btn" onClick={onToggle}>
             <FontAwesomeIcon icon={collapsed ? faChevronRight : faChevronLeft} />
@@ -164,7 +171,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
           {!collapsed && (
             <div className="profile-info">
               <div className="profile-name">{admin?.fullName || 'Admin'}</div>
-              <div className="profile-role">{admin?.role || 'Administrator'}</div>
+              <div className="profile-role">{getDisplayRole(admin?.role)}</div>
             </div>
           )}
         </div>

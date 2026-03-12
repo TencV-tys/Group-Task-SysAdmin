@@ -1,40 +1,58 @@
-/* Admin Layout */
+/* layouts/styles/AdminLayout.css - ULTIMATE FIX */
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
 .admin-layout {
-  min-height: 100vh;
+  display: flex;
+  height: 100vh;
   width: 100%;
-  display: block;
+  background-color: #f8f9fa;
+  overflow: hidden;
+  position: relative;
 }
 
-/* Sidebar is fixed, so main content needs left margin */
+.admin-sidebar {
+  flex-shrink: 0;
+  width: 260px;
+  height: 100vh;
+  transition: width 0.3s ease;
+  overflow-y: auto;
+  overflow-x: visible !important; /* Allow button to be visible */
+  position: relative;
+  z-index: 1000;
+}
+
+.admin-sidebar.collapsed {
+  width: 80px;
+}
+
 .admin-main {
-  margin-left: 260px; /* Same as sidebar width */
-  background: #f8f9fa;
-  min-height: 100vh;
-  width: calc(100% - 260px); /* Take remaining width */
-  transition: margin-left 0.3s ease, width 0.3s ease;
+  flex: 1;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background-color: #f8f9fa;
+  position: relative;
+  z-index: 1;
 }
 
-/* When sidebar is collapsed */
-.admin-main.expanded {
-  margin-left: 80px; /* Same as collapsed sidebar width */
-  width: calc(100% - 80px); /* Adjust width to fill remaining space */
-}
-
-/* Content container */
 .admin-content {
+  min-height: 100%;
   width: 100%;
-  min-height: 100vh;
 }
 
-/* Responsive */
-@media (max-width: 768px) {
-  .admin-main {
-    margin-left: 80px;
-    width: calc(100% - 80px);
-  }
-  
-  .admin-main.expanded {
-    margin-left: 0;
-    width: 100%;
-  }
+.admin-content > * {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }

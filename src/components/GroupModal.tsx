@@ -1,5 +1,5 @@
 // components/GroupModal.tsx
-import React from 'react';
+import React, { useState } from 'react';
 import type { Group } from '../services/admin.groups.service';
 import LoadingScreen from './LoadingScreen';
 import './styles/GroupModal.css';
@@ -19,6 +19,8 @@ const GroupModal: React.FC<GroupModalProps> = ({
   loading,
   onDelete 
 }) => {
+  const [showDeleteOptions, setShowDeleteOptions] = useState(false);
+
   if (!isOpen) return null;
 
   const formatDate = (dateString: string) => {
@@ -29,6 +31,22 @@ const GroupModal: React.FC<GroupModalProps> = ({
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const handleDeleteClick = () => {
+    setShowDeleteOptions(true);
+  };
+
+  const handleDeleteConfirm = (hardDelete: boolean) => {
+    if (group) {
+      onDelete(group.id, hardDelete);
+      setShowDeleteOptions(false);
+      onClose();
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setShowDeleteOptions(false);
   };
 
   return (
@@ -182,20 +200,43 @@ const GroupModal: React.FC<GroupModalProps> = ({
         )}
 
         <div className="modal-footer">
-          <button 
-            className="modal-delete-btn"
-            onClick={() => {
-              if (group && window.confirm('Are you sure you want to delete this group?')) {
-                onDelete(group.id);
-                onClose();
-              }
-            }}
-          >
-            Delete Group
-          </button>
-          <button className="modal-close-btn" onClick={onClose}>
-            Close
-          </button>
+          {!showDeleteOptions ? (
+            <>
+              <button 
+                className="modal-delete-btn"
+                onClick={handleDeleteClick}
+              >
+                Delete Group
+              </button>
+              <button className="modal-close-btn" onClick={onClose}>
+                Close
+              </button>
+            </>
+          ) : (
+            <div className="delete-options-modal">
+              <p>Delete this group?</p>
+              <div className="delete-actions-modal">
+                <button 
+                  className="delete-soft-modal"
+                  onClick={() => handleDeleteConfirm(false)}
+                >
+                  Soft Delete
+                </button>
+                <button 
+                  className="delete-hard-modal"
+                  onClick={() => handleDeleteConfirm(true)}
+                >
+                  Hard Delete
+                </button>
+                <button 
+                  className="delete-cancel-modal"
+                  onClick={handleCancelDelete}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
