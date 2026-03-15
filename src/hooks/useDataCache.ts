@@ -5,7 +5,7 @@ interface CacheEntry<T> {
   data: T;
   timestamp: number;
 }
-
+ 
 const globalCache = new Map<string, CacheEntry<unknown>>();
 
 const DEFAULT_CACHE_TIME = 30 * 1000; // 30 seconds

@@ -1,4 +1,4 @@
-// services/admin.groups.service.ts
+// services/admin.groups.service.ts - UPDATED
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 // ========== INTERFACES ==========
@@ -15,25 +15,6 @@ export interface GroupFilters {
   createdBefore?: string;
 }
 
-export interface GroupSettings {
-  allowMemberInvites?: boolean;
-  defaultMemberRole?: 'MEMBER' | 'ADMIN';
-  requireTaskApproval?: boolean;
-  allowSwapRequests?: boolean;
-  maxMembers?: number;
-  isPrivate?: boolean;
-  taskReminders?: {
-    enabled: boolean;
-    hoursBefore: number;
-  };
-  rotationSettings?: {
-    autoRotate: boolean;
-    rotationDay: 'SUNDAY' | 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY';
-    rotationTime: string;
-  };
-  [key: string]: unknown;
-}
-
 export interface Group {
   id: string;
   name: string;
@@ -44,7 +25,6 @@ export interface Group {
   updatedAt: string;
   currentRotationWeek: number;
   lastRotationUpdate: string | null;
-  settings?: GroupSettings;
   _count?: {
     members: number;
     tasks: number;
@@ -54,52 +34,6 @@ export interface Group {
     id: string;
     fullName: string;
     email: string;
-  };
-  members?: Array<{
-    id: string;
-    userId: string;
-    groupRole: string;
-    joinedAt: string;
-    user: {
-      id: string;
-      fullName: string;
-      email: string;
-      avatarUrl?: string;
-      roleStatus: string;
-    };
-  }>;
-  stats?: {
-    activeMembers: number;
-    totalTasks: number;
-    completedTasks: number;
-    completionRate: number;
-  };
-}
-
-export interface GroupMember {
-  id: string;
-  userId: string;
-  groupRole: string;
-  joinedAt: string;
-  rotationOrder: number | null;
-  isActive: boolean;
-  cumulativePoints: number;
-  user: {
-    id: string;
-    fullName: string;
-    email: string;
-    avatarUrl: string | null;
-    roleStatus: string;
-    createdAt: string;
-    lastLoginAt: string | null;
-    _count?: {
-      assignments: number;
-    };
-  };
-  stats: {
-    completedTasks: number;
-    totalTasks: number;
-    completionRate: number;
   };
 }
 
@@ -122,32 +56,9 @@ export interface GroupResponse {
   group?: Group;
 }
 
-export interface GroupMembersResponse {
-  success: boolean;
-  message: string;
-  members?: GroupMember[];
-  pagination?: {
-    total: number;
-    page: number;
-    limit: number;
-    pages: number;
-    hasMore: boolean;
-  };
-}
-
 export interface DeleteGroupResponse {
   success: boolean;
   message: string;
-}
-
-export interface BulkDeleteResponse {
-  success: boolean;
-  message: string;
-  results?: Array<{
-    groupId: string;
-    success: boolean;
-    message: string;
-  }>;
 }
 
 export interface GroupStatisticsResponse {
@@ -156,124 +67,65 @@ export interface GroupStatisticsResponse {
   statistics?: {
     overview: {
       total: number;
-      active: number;
-      recent: number;
       withReports: number;
     };
-    sizeDistribution: Array<{
-      size_range: string;
-      count: number;
-    }>;
-    topGroups: {
-      byMembers: Array<{
-        id: string;
-        name: string;
-        memberCount: number;
-      }>;
-      byTasks: Array<{
-        id: string;
-        name: string;
-        taskCount: number;
-      }>;
-    };
   };
 }
 
-export interface GroupsExportData {
-  success: boolean;
-  message: string;
-  groups?: Group[];
-}
-
-export interface UpdateGroupData {
-  name?: string;
-  description?: string | null;
-  avatarUrl?: string | null;
-  settings?: GroupSettings;
-}
-
-export interface ActivityLog {
-  id: string;
-  action: string;
-  userId: string;
+// Report Analysis Types
+export interface ReportAnalysis {
   groupId: string;
-  details?: Record<string, unknown>;
-  createdAt: string;
-  user?: {
-    id: string;
-    fullName: string;
-    email: string;
-    avatarUrl?: string | null;
-  };
-}
-
-export interface GroupActivityResponse {
-  success: boolean;
-  message: string;
-  activities?: ActivityLog[];
-  pagination?: {
-    total: number;
-    limit: number;
-    offset: number;
-    hasMore: boolean;
-  };
-}
-
-export interface GroupTasksResponse {
-  success: boolean;
-  message: string;
-  tasks?: Array<{
-    id: string;
-    title: string;
-    description: string | null;
-    points: number;
-    executionFrequency: string;
-    createdAt: string;
-    timeSlots?: Array<{
-      id: string;
-      startTime: string;
-      endTime: string;
-      label?: string;
-    }>;
-    _count?: {
-      assignments: number;
-    };
-  }>;
-  pagination?: {
-    total: number;
-    page: number;
-    limit: number;
-    pages: number;
-  };
-}
-
-export interface GroupReportsResponse {
-  success: boolean;
-  message: string;
-  reports?: Array<{
-    id: string;
+  groupName: string;
+  reportCount: number;
+  reportTypes: {
     type: string;
-    description: string;
-    status: string;
-    createdAt: string;
-    reporter: {
-      id: string;
-      fullName: string;
-      email: string;
-    };
-  }>;
+    count: number;
+    threshold: number;
+    suggestedAction: string;
+    severity: string;
+    message: string;
+    meetsThreshold: boolean;
+  }[];
+  suggestedActions: {
+    action: string;
+    reason: string;
+    severity: string;
+    reportTypes: string[];
+  }[];
+  requiresImmediateAction: boolean;
+}
+
+export interface ReportAnalysisResponse {
+  success: boolean;
+  message: string;
+  analysis?: ReportAnalysis;
+}
+
+export interface ApplyActionResult {
+  success: boolean;
+  message: string;
+}
+
+export interface GroupWithAnalysis extends Group {
+  reportAnalysis?: ReportAnalysis | null;
+}
+
+export interface GroupsWithAnalysisResponse {
+  success: boolean;
+  message: string;
+  groups?: GroupWithAnalysis[];
   pagination?: {
     total: number;
     page: number;
     limit: number;
     pages: number;
+    hasMore: boolean;
   };
 }
 
 // ========== SERVICE CLASS ==========
 
 export class AdminGroupsService {
-  // ========== BASIC CRUD ==========
   
   /**
    * Get all groups with filters
@@ -303,7 +155,34 @@ export class AdminGroupsService {
   }
 
   /**
-   * Get group by ID with full details
+   * Get groups with report analysis
+   */
+  static async getGroupsWithAnalysis(filters?: GroupFilters): Promise<GroupsWithAnalysisResponse> {
+    try {
+      const params = new URLSearchParams();
+      
+      if (filters) {
+        Object.entries(filters).forEach(([key, value]) => {
+          if (value !== undefined && value !== '') {
+            params.append(key, value.toString());
+          }
+        });
+      }
+      
+      const queryString = params.toString();
+      const url = `${API_URL}/api/admin/groups/with-analysis${queryString ? `?${queryString}` : ''}`;
+      
+      const response = await fetch(url, {
+        credentials: 'include'
+      });
+      return await response.json();
+    } catch {
+      return { success: false, message: 'Network error' };
+    }
+  }
+
+  /**
+   * Get group by ID
    */
   static async getGroupById(groupId: string): Promise<GroupResponse> {
     try {
@@ -342,90 +221,11 @@ export class AdminGroupsService {
   }
 
   /**
-   * Update group settings
-   */
-  static async updateGroup(
-    groupId: string, 
-    data: UpdateGroupData
-  ): Promise<GroupResponse> {
-    try {
-      const response = await fetch(`${API_URL}/api/admin/groups/${groupId}`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)
-      });
-      return await response.json();
-    } catch {
-      return { success: false, message: 'Network error' };
-    }
-  }
-
-  // ========== GROUP STATISTICS ==========
-  
-  /**
    * Get group statistics
    */
-  static async getGroupStatistics(filters?: { 
-    startDate?: string; 
-    endDate?: string;
-    minMembers?: number;
-    maxMembers?: number;
-  }): Promise<GroupStatisticsResponse> {
+  static async getGroupStatistics(): Promise<GroupStatisticsResponse> {
     try {
-      const params = new URLSearchParams();
-      
-      if (filters) {
-        if (filters.startDate) params.append('startDate', filters.startDate);
-        if (filters.endDate) params.append('endDate', filters.endDate);
-        if (filters.minMembers) params.append('minMembers', filters.minMembers.toString());
-        if (filters.maxMembers) params.append('maxMembers', filters.maxMembers.toString());
-      }
-      
-      const queryString = params.toString();
-      const url = `${API_URL}/api/admin/groups/statistics${queryString ? `?${queryString}` : ''}`;
-      
-      const response = await fetch(url, {
-        credentials: 'include'
-      });
-      return await response.json();
-    } catch {
-      return { success: false, message: 'Network error' };
-    }
-  }
-
-  // ========== GROUP MEMBERS MANAGEMENT ==========
-  
-  /**
-   * Get all members of a group
-   */
-  static async getGroupMembers(
-    groupId: string, 
-    filters?: {
-      role?: string;
-      status?: string;
-      search?: string;
-      page?: number;
-      limit?: number;
-    }
-  ): Promise<GroupMembersResponse> {
-    try {
-      const params = new URLSearchParams();
-      
-      if (filters) {
-        Object.entries(filters).forEach(([key, value]) => {
-          if (value !== undefined && value !== '') {
-            params.append(key, value.toString());
-          }
-        });
-      }
-      
-      const queryString = params.toString();
-      const url = `${API_URL}/api/admin/groups/${groupId}/members${queryString ? `?${queryString}` : ''}`;
-      
-      const response = await fetch(url, {
+      const response = await fetch(`${API_URL}/api/admin/groups/statistics`, {
         credentials: 'include'
       });
       return await response.json();
@@ -435,261 +235,35 @@ export class AdminGroupsService {
   }
 
   /**
-   * Remove a member from a group
+   * Analyze group reports
    */
-  static async removeMember(
-    groupId: string, 
-    memberId: string, 
+  static async analyzeGroupReports(groupId: string): Promise<ReportAnalysisResponse> {
+    try {
+      const response = await fetch(`${API_URL}/api/admin/groups/${groupId}/reports/analyze`, {
+        credentials: 'include'
+      });
+      return await response.json();
+    } catch {
+      return { success: false, message: 'Network error' };
+    }
+  }
+
+  /**
+   * Apply action to group (SUSPEND, RESTORE, SOFT_DELETE, HARD_DELETE, WARNING, REVIEW)
+   */
+  static async applyAction(
+    groupId: string,
+    action: string,
     reason?: string
-  ): Promise<DeleteGroupResponse> {
+  ): Promise<ApplyActionResult> {
     try {
-      const response = await fetch(`${API_URL}/api/admin/groups/${groupId}/members/${memberId}`, {
-        method: 'DELETE',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ reason })
-      });
-      return await response.json();
-    } catch {
-      return { success: false, message: 'Network error' };
-    }
-  }
-
-  /**
-   * Update member role in group
-   */
-  static async updateMemberRole(
-    groupId: string,
-    memberId: string,
-    role: 'MEMBER' | 'ADMIN'
-  ): Promise<DeleteGroupResponse> {
-    try {
-      const response = await fetch(`${API_URL}/api/admin/groups/${groupId}/members/${memberId}`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ groupRole: role })
-      });
-      return await response.json();
-    } catch {
-      return { success: false, message: 'Network error' };
-    }
-  }
-
-  // ========== GROUP TASKS ==========
-  
-  /**
-   * Get all tasks in a group
-   */
-  static async getGroupTasks(
-    groupId: string,
-    filters?: {
-      page?: number;
-      limit?: number;
-      isDeleted?: boolean;
-    }
-  ): Promise<GroupTasksResponse> {
-    try {
-      const params = new URLSearchParams();
-      
-      if (filters) {
-        if (filters.page) params.append('page', filters.page.toString());
-        if (filters.limit) params.append('limit', filters.limit.toString());
-        if (filters.isDeleted !== undefined) params.append('isDeleted', filters.isDeleted.toString());
-      }
-      
-      const queryString = params.toString();
-      const url = `${API_URL}/api/admin/groups/${groupId}/tasks${queryString ? `?${queryString}` : ''}`;
-      
-      const response = await fetch(url, {
-        credentials: 'include'
-      });
-      return await response.json();
-    } catch {
-      return { success: false, message: 'Network error' };
-    }
-  }
-
-  // ========== GROUP REPORTS ==========
-  
-  /**
-   * Get all reports for a group
-   */
-  static async getGroupReports(
-    groupId: string,
-    filters?: {
-      status?: string;
-      page?: number;
-      limit?: number;
-    }
-  ): Promise<GroupReportsResponse> {
-    try {
-      const params = new URLSearchParams();
-      
-      if (filters) {
-        if (filters.status) params.append('status', filters.status);
-        if (filters.page) params.append('page', filters.page.toString());
-        if (filters.limit) params.append('limit', filters.limit.toString());
-      }
-      
-      const queryString = params.toString();
-      const url = `${API_URL}/api/admin/groups/${groupId}/reports${queryString ? `?${queryString}` : ''}`;
-      
-      const response = await fetch(url, {
-        credentials: 'include'
-      });
-      return await response.json();
-    } catch {
-      return { success: false, message: 'Network error' };
-    }
-  }
-
-  // ========== GROUP ACTIVITY ==========
-  
-  /**
-   * Get group activity logs
-   */
-  static async getGroupActivity(
-    groupId: string,
-    filters?: {
-      startDate?: string;
-      endDate?: string;
-      limit?: number;
-      offset?: number;
-    }
-  ): Promise<GroupActivityResponse> {
-    try {
-      const params = new URLSearchParams();
-      
-      if (filters) {
-        if (filters.startDate) params.append('startDate', filters.startDate);
-        if (filters.endDate) params.append('endDate', filters.endDate);
-        if (filters.limit) params.append('limit', filters.limit.toString());
-        if (filters.offset) params.append('offset', filters.offset.toString());
-      }
-      
-      const queryString = params.toString();
-      const url = `${API_URL}/api/admin/groups/${groupId}/activity${queryString ? `?${queryString}` : ''}`;
-      
-      const response = await fetch(url, {
-        credentials: 'include'
-      });
-      return await response.json();
-    } catch {
-      return { 
-        success: false, 
-        message: 'Network error' 
-      };
-    }
-  }
-
-  // ========== BULK OPERATIONS ==========
-  
-  /**
-   * Bulk delete multiple groups
-   */
-  static async bulkDeleteGroups(
-    groupIds: string[],
-    options?: { hardDelete?: boolean; reason?: string }
-  ): Promise<BulkDeleteResponse> {
-    try {
-      const response = await fetch(`${API_URL}/api/admin/groups/bulk-delete`, {
+      const response = await fetch(`${API_URL}/api/admin/groups/${groupId}/apply-action`, {
         method: 'POST',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          groupIds,
-          hardDelete: options?.hardDelete,
-          reason: options?.reason
-        })
-      });
-      return await response.json();
-    } catch {
-      return { success: false, message: 'Network error' };
-    }
-  }
-
-  // ========== EXPORT ==========
-  
-  /**
-   * Export groups data
-   */
-  static async exportGroups(
-    format?: 'json' | 'csv', 
-    filters?: GroupFilters
-  ): Promise<string | GroupsExportData> {
-    try {
-      const params = new URLSearchParams();
-      
-      if (format) params.append('format', format);
-      
-      if (filters) {
-        Object.entries(filters).forEach(([key, value]) => {
-          if (value !== undefined && value !== '') {
-            params.append(key, value.toString());
-          }
-        });
-      }
-      
-      const queryString = params.toString();
-      const url = `${API_URL}/api/admin/groups/export${queryString ? `?${queryString}` : ''}`;
-      
-      const response = await fetch(url, {
-        credentials: 'include'
-      });
-      
-      if (format === 'csv') {
-        return await response.text();
-      }
-      return await response.json();
-    } catch {
-      return { success: false, message: 'Network error' };
-    }
-  }
-
-  // ========== ROTATION MANAGEMENT ==========
-  
-  /**
-   * Trigger rotation for a group
-   */
-  static async triggerRotation(
-    groupId: string
-  ): Promise<{ success: boolean; message: string }> {
-    try {
-      const response = await fetch(`${API_URL}/api/admin/groups/${groupId}/rotate`, {
-        method: 'POST',
-        credentials: 'include'
-      });
-      return await response.json();
-    } catch {
-      return { success: false, message: 'Network error' };
-    }
-  }
-
-  /**
-   * Update rotation settings
-   */
-  static async updateRotationSettings(
-    groupId: string,
-    settings: {
-      currentRotationWeek?: number;
-      lastRotationUpdate?: string;
-    }
-  ): Promise<GroupResponse> {
-    try {
-      const response = await fetch(`${API_URL}/api/admin/groups/${groupId}/rotation`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(settings)
+        body: JSON.stringify({ action, reason })
       });
       return await response.json();
     } catch {

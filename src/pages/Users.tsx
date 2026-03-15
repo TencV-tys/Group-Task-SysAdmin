@@ -1,4 +1,4 @@
-// pages/Users.tsx
+// pages/Users.tsx - COMPLETE WITH SAFEIMAGE AND AVATAR HANDLING
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useUsers } from '../hooks/useUsers';
 import UsersModal from '../components/UsersModal';
@@ -7,8 +7,36 @@ import ErrorDisplay from '../components/ErrorDisplay';
 import type { UserDetails } from '../services/admin.users.service';
 import './styles/Users.css';
 
+// Safe Image Component to handle broken avatar URLs
+const SafeImage = ({ src, className, fallbackChar }: { src: string; className: string; fallbackChar: string }) => {
+  const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(true);
+  
+  if (error || !src) {
+    return (
+      <div className={`${className}-placeholder`}>
+        {fallbackChar}
+      </div>
+    );
+  }
+  
+  return (
+    <img 
+      src={src} 
+      className={className}
+      onError={() => {
+        setError(true);
+        setLoading(false);
+      }}
+      onLoad={() => setLoading(false)}
+      style={{ display: loading ? 'none' : 'block' }}
+      alt=""
+    />
+  );
+};
+
 const Users = () => {
-  const { users, loading, error, pagination, fetchUsers, getUserDetails, setPagination } = useUsers(10);
+  const { users, loading, error, pagination, fetchUsers, getUserDetails, setPagination, stats } = useUsers(10);
   
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -17,10 +45,12 @@ const Users = () => {
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [initialLoad, setInitialLoad] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [roleFilter, setRoleFilter] = useState<string>('');
   
   // Refs to prevent multiple requests
   const fetchInProgress = useRef(false);
-  const searchTimeoutRef = useRef<number | undefined>(undefined) ;
+  const searchTimeoutRef = useRef<number | undefined>(undefined);
 
   // Debounce search term
   useEffect(() => {
@@ -30,7 +60,7 @@ const Users = () => {
 
     searchTimeoutRef.current = setTimeout(() => {
       setDebouncedSearch(searchTerm);
-    }, 500); // 500ms debounce
+    }, 500);
 
     return () => {
       if (searchTimeoutRef.current) {
@@ -44,12 +74,11 @@ const Users = () => {
     if (!fetchInProgress.current) {
       setPagination(prev => ({ ...prev, page: 1 }));
     }
-  }, [debouncedSearch, setPagination]);
+  }, [debouncedSearch, statusFilter, roleFilter, setPagination]);
 
-  // Fetch users when page or debounced search changes
+  // Fetch users when filters change
   useEffect(() => {
     const loadUsers = async () => {
-      // Prevent multiple simultaneous requests
       if (fetchInProgress.current) return;
       
       fetchInProgress.current = true;
@@ -58,7 +87,9 @@ const Users = () => {
         await fetchUsers({ 
           page: pagination.page, 
           limit: pagination.limit, 
-          search: debouncedSearch || undefined 
+          search: debouncedSearch || undefined,
+          status: statusFilter || undefined,
+          role: roleFilter || undefined
         });
       } finally {
         fetchInProgress.current = false;
@@ -67,10 +98,21 @@ const Users = () => {
     };
     
     loadUsers();
-  }, [pagination.page, pagination.limit, debouncedSearch, fetchUsers]);
+  }, [pagination.page, pagination.limit, debouncedSearch, statusFilter, roleFilter, fetchUsers]);
+
+  // ===== Handle stat card click =====
+  const handleStatClick = (filterType: string, value: string) => {
+    if (filterType === 'status') {
+      setStatusFilter(value);
+      setRoleFilter(''); // Clear role filter when clicking status
+    } else if (filterType === 'role') {
+      setRoleFilter(value);
+      setStatusFilter(''); // Clear status filter when clicking role
+    }
+    setPagination(prev => ({ ...prev, page: 1 }));
+  };
 
   const handleSearch = useCallback(() => {
-    // Immediate search on button click
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
@@ -89,7 +131,6 @@ const Users = () => {
   }, [pagination.page, setPagination]);
 
   const handleViewUser = async (userId: string) => {
-    // Prevent opening same user multiple times
     if (selectedRowId === userId) return;
     
     setSelectedRowId(userId);
@@ -101,7 +142,6 @@ const Users = () => {
       if (result.success && result.data) {
         setSelectedUser(result.data);
       } else {
-        // Show error toast or message
         console.error('Failed to load user details:', result.message);
         setShowModal(false);
         setSelectedUser(null);
@@ -128,9 +168,11 @@ const Users = () => {
     }, 300);
   };
 
-  const clearSearch = useCallback(() => {
+  const clearFilters = useCallback(() => {
     setSearchTerm('');
     setDebouncedSearch('');
+    setStatusFilter('');
+    setRoleFilter('');
     setPagination(prev => ({ ...prev, page: 1 }));
   }, [setPagination]);
 
@@ -199,9 +241,85 @@ const Users = () => {
           </div>
         </div>
 
+        {/* Stats Cards */}
+        {stats && (
+          <div className="users-stats">
+            <div 
+              className={`users-stat-card ${!statusFilter && !roleFilter ? 'active' : ''}`}
+              onClick={() => {
+                setStatusFilter('');
+                setRoleFilter('');
+                setPagination(prev => ({ ...prev, page: 1 }));
+              }}
+              style={{ cursor: 'pointer' }}
+            >
+              <span className="users-stat-value">{stats.total}</span>
+              <span className="users-stat-label">Total Users</span>
+              {!statusFilter && !roleFilter && <div className="stat-active-indicator" />}
+            </div>
+            
+            <div 
+              className={`users-stat-card ${statusFilter === 'ACTIVE' ? 'active' : ''}`}
+              onClick={() => handleStatClick('status', 'ACTIVE')}
+              style={{ cursor: 'pointer' }}
+            >
+              <span className="users-stat-value">{stats.active}</span>
+              <span className="users-stat-label">Active</span>
+              {statusFilter === 'ACTIVE' && <div className="stat-active-indicator" />}
+            </div>
+            
+            <div 
+              className={`users-stat-card ${roleFilter === 'GROUP_ADMIN' ? 'active' : ''}`}
+              onClick={() => handleStatClick('role', 'GROUP_ADMIN')}
+              style={{ cursor: 'pointer' }}
+            >
+              <span className="users-stat-value">{stats.groupAdmins}</span>
+              <span className="users-stat-label">Group Admins</span>
+              {roleFilter === 'GROUP_ADMIN' && <div className="stat-active-indicator" />}
+            </div>
+          </div>
+        )}
+
+        {/* Active Filters */}
+        {(statusFilter || roleFilter || debouncedSearch) && (
+          <div className="users-active-filters">
+            <span className="users-active-filters-label">Active filters:</span>
+            {statusFilter && (
+              <span className="users-filter-tag">
+                Status: {statusFilter}
+                <button onClick={() => setStatusFilter('')}>×</button>
+              </span>
+            )}
+            {roleFilter && (
+              <span className="users-filter-tag">
+                Role: {roleFilter === 'GROUP_ADMIN' ? 'Group Admin' : 'User'}
+                <button onClick={() => setRoleFilter('')}>×</button>
+              </span>
+            )}
+            {debouncedSearch && (
+              <span className="users-filter-tag">
+                Search: "{debouncedSearch}"
+                <button onClick={() => {
+                  setSearchTerm('');
+                  setDebouncedSearch('');
+                }}>×</button>
+              </span>
+            )}
+            <button className="users-clear-filters" onClick={clearFilters}>
+              Clear All
+            </button>
+          </div>
+        )}
+
         {/* Error Display */}
         {error && <ErrorDisplay message={error} onRetry={() => {
-          fetchUsers({ page: pagination.page, limit: pagination.limit, search: debouncedSearch });
+          fetchUsers({ 
+            page: pagination.page, 
+            limit: pagination.limit, 
+            search: debouncedSearch,
+            status: statusFilter || undefined,
+            role: roleFilter || undefined
+          });
         }} />}
 
         {/* Users Table or Empty State */}
@@ -215,13 +333,13 @@ const Users = () => {
             </div>
             <h3 className="users-empty-title">No users found</h3>
             <p className="users-empty-message">
-              {debouncedSearch 
-                ? `No users match "${debouncedSearch}". Try adjusting your search terms.`
+              {debouncedSearch || statusFilter || roleFilter
+                ? "No users match your current filters. Try adjusting your search."
                 : "There are no users in the system yet."}
             </p>
-            {debouncedSearch && (
-              <button className="users-empty-btn" onClick={clearSearch}>
-                Clear Search
+            {(debouncedSearch || statusFilter || roleFilter) && (
+              <button className="users-empty-btn" onClick={clearFilters}>
+                Clear Filters
               </button>
             )}
           </div>
@@ -253,11 +371,11 @@ const Users = () => {
                       <td>
                         <div className="users-user-info">
                           <div className="users-avatar">
-                            {user.avatarUrl ? (
-                              <img src={user.avatarUrl} alt={user.fullName} />
-                            ) : (
-                              <span>{user.fullName?.charAt(0).toUpperCase() || '?'}</span>
-                            )}
+                            <SafeImage 
+                              src={user.avatarUrl || ''} 
+                              className="user-avatar-img"
+                              fallbackChar={user.fullName?.charAt(0).toUpperCase() || 'U'}
+                            />
                           </div>
                           <span className="users-user-name">{user.fullName}</span>
                         </div>
@@ -298,7 +416,7 @@ const Users = () => {
                             <circle cx="12" cy="12" r="3" />
                             <path d="M22 12c-2.667 4.667-6 7-10 7s-7.333-2.333-10-7c2.667-4.667 6-7 10-7s7.333 2.333 10 7z" />
                           </svg>
-                          View
+                          <span>View</span>
                         </button>
                       </td>
                     </tr>

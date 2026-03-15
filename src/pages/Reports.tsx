@@ -1,5 +1,5 @@
-// pages/Reports.tsx
-import React, { useState, useEffect, useCallback } from 'react';
+// pages/Reports.tsx - COMPLETE FIXED VERSION
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Report, ReportFilters } from '../services/admin.report.services';
 import { AdminReportsService } from '../services/admin.report.services';
 import LoadingScreen from '../components/LoadingScreen';
@@ -51,6 +51,34 @@ interface ReportStatistics {
   }>;
 }
 
+// Safe Image Component to handle broken avatar URLs
+const SafeImage = ({ src, className, fallbackChar }: { src: string; className: string; fallbackChar: string }) => {
+  const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(true);
+  
+  if (error || !src) {
+    return (
+      <div className={`${className}-placeholder`}>
+        {fallbackChar}
+      </div>
+    );
+  }
+  
+  return (
+    <img 
+      src={src} 
+      className={className}
+      onError={() => {
+        setError(true);
+        setLoading(false);
+      }}
+      onLoad={() => setLoading(false)}
+      style={{ display: loading ? 'none' : 'block' }}
+      alt=""
+    />
+  );
+};
+
 const Reports: React.FC = () => {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,15 +99,23 @@ const Reports: React.FC = () => {
   const [stats, setStats] = useState<ReportStatistics | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [searchInput, setSearchInput] = useState('');
+  const isFetchingRef = useRef(false);
 
-  const fetchReports = useCallback(async () => {
+  // ===== FIXED: Pass filters as parameter, not dependency =====
+  const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
+    if (isFetchingRef.current) return;
+    
+    isFetchingRef.current = true;
     setLoading(true);
     setError(null);
+    
     try {
-      const apiFilters = { ...filters };
-      if (apiFilters.status === 'ALL') delete apiFilters.status;
+      // Use provided filters or current state
+      const apiFilters = filterParams || filters;
+      const queryFilters = { ...apiFilters };
+      if (queryFilters.status === 'ALL') delete queryFilters.status;
       
-      const result = await AdminReportsService.getReports(apiFilters);
+      const result = await AdminReportsService.getReports(queryFilters);
       
       if (result.success) {
         setReports(result.reports || []);
@@ -87,13 +123,15 @@ const Reports: React.FC = () => {
       } else {
         setError(result.message || 'Failed to load reports');
       }
-    } catch {
+    } catch (err) {
+      console.error('Fetch reports error:', err);
       setError('Network error. Please try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
+      isFetchingRef.current = false;
     }
-  }, [filters]);
+  }, [filters]); // 👈 Empty dependency array - NEVER recreates
 
   const fetchStats = useCallback(async () => {
     try {
@@ -101,32 +139,49 @@ const Reports: React.FC = () => {
       if (result.success && result.statistics) {
         setStats(result.statistics);
       }
-    } catch {
-      console.error('Failed to fetch stats');
+    } catch (err) {
+      console.error('Failed to fetch stats:', err);
     }
   }, []);
 
+  // ===== Update useEffect to pass current filters =====
   useEffect(() => {
-    fetchReports();
+    fetchReports(filters);
+  }, [filters, fetchReports]);
+
+  useEffect(() => {
     fetchStats();
-  }, [fetchReports, fetchStats]);
+  }, [fetchStats]);
 
   const handleRefresh = () => {
     setRefreshing(true);
-    fetchReports();
+    fetchReports(filters);
     fetchStats();
   };
 
   const handleSearch = () => {
-    setFilters(prev => ({ ...prev, search: searchInput, page: 1 }));
+    const newFilters = { ...filters, search: searchInput, page: 1 };
+    setFilters(newFilters);
+    fetchReports(newFilters);
   };
 
   const handleStatusChange = (status: string) => {
-    setFilters(prev => ({ ...prev, status, page: 1 }));
+    const newFilters = { ...filters, status, page: 1 };
+    setFilters(newFilters);
+    fetchReports(newFilters);
+  };
+
+  // ===== Handle stat card click =====
+  const handleStatClick = (status: string) => {
+    const newFilters = { ...filters, status, page: 1 };
+    setFilters(newFilters);
+    fetchReports(newFilters);
   };
 
   const handlePageChange = (newPage: number) => {
-    setFilters(prev => ({ ...prev, page: newPage }));
+    const newFilters = { ...filters, page: newPage };
+    setFilters(newFilters);
+    fetchReports(newFilters);
   };
 
   const handleRowClick = (report: Report) => {
@@ -147,6 +202,7 @@ const Reports: React.FC = () => {
     setShowUpdateModal(true);
   };
 
+  // ===== FIXED: Update handler that preserves current filter =====
   const handleUpdateStatus = async () => {
     if (!selectedReport) return;
     
@@ -158,20 +214,61 @@ const Reports: React.FC = () => {
         updateNotes
       );
       
-      if (result.success && result.report) {
-        setReports(prev => prev.map(r => 
-          r.id === selectedReport.id ? result.report! : r
-        ));
+      if (result.success) {
+        // Close modal
         setShowUpdateModal(false);
+        
+        // Store current filter before refresh
+        const currentFilter = filters.status;
+        
+        // Refresh data with CURRENT filters
+        await fetchReports(filters);
+        await fetchStats();
+        
+        // Clear states
+        setSelectedReport(null);
         setSelectedRowId(null);
-        fetchStats();
+        setUpdateStatus('');
+        setUpdateNotes('');
+        
+        // Show success message
+        alert(`Report status updated to ${updateStatus}`);
+        
+        // If the report no longer matches current filter, 
+        // offer to switch to ALL view
+        if (currentFilter !== 'ALL' && currentFilter !== updateStatus) {
+          if (window.confirm('Report updated. Switch to "All Reports" view to see it?')) {
+            const newFilters = { ...filters, status: 'ALL', page: 1 };
+            setFilters(newFilters);
+            await fetchReports(newFilters);
+          }
+        }
       } else {
         alert(result.message || 'Failed to update report');
       }
-    } catch {
+    } catch (err) {
+      console.error('Update error:', err);
       alert('Network error. Please try again.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleViewFullDetails = async (report: Report) => {
+    setSelectedRowId(report.id);
+    try {
+      const result = await AdminReportsService.getReportById(report.id);
+      if (result.success && result.report) {
+        setSelectedReport(result.report);
+        setShowDetailsModal(true);
+      } else {
+        setSelectedReport(report);
+        setShowDetailsModal(true);
+      }
+    } catch (err) {
+      console.error('Error fetching details:', err);
+      setSelectedReport(report);
+      setShowDetailsModal(true);
     }
   };
 
@@ -185,6 +282,12 @@ const Reports: React.FC = () => {
 
   const closeUpdateModal = () => {
     setShowUpdateModal(false);
+    setTimeout(() => {
+      setSelectedReport(null);
+      setSelectedRowId(null);
+      setUpdateStatus('');
+      setUpdateNotes('');
+    }, 300);
   };
 
   const getStatusBadgeClass = (status: string) => {
@@ -262,11 +365,13 @@ const Reports: React.FC = () => {
 
   const clearFilters = () => {
     setSearchInput('');
-    setFilters({
+    const newFilters = {
       status: 'ALL',
       page: 1,
       limit: 20
-    });
+    };
+    setFilters(newFilters);
+    fetchReports(newFilters);
   };
 
   if (loading && !refreshing) {
@@ -286,10 +391,14 @@ const Reports: React.FC = () => {
         </button>
       </div>
 
-      {/* Stats Cards */}
+      {/* Stats Cards - NOW CLICKABLE */}
       {stats && (
         <div className="stats-grid">
-          <div className="stat-card total">
+          <div 
+            className={`stat-card total ${filters.status === 'ALL' ? 'active' : ''}`}
+            onClick={() => handleStatClick('ALL')}
+            style={{ cursor: 'pointer' }}
+          >
             <div className="stat-icon">
               <FontAwesomeIcon icon={faFlag} />
             </div>
@@ -297,8 +406,14 @@ const Reports: React.FC = () => {
               <span className="stat-value">{stats.overview.total}</span>
               <span className="stat-label">Total Reports</span>
             </div>
+            {filters.status === 'ALL' && <div className="stat-active-indicator" />}
           </div>
-          <div className="stat-card pending">
+          
+          <div 
+            className={`stat-card pending ${filters.status === 'PENDING' ? 'active' : ''}`}
+            onClick={() => handleStatClick('PENDING')}
+            style={{ cursor: 'pointer' }}
+          >
             <div className="stat-icon">
               <FontAwesomeIcon icon={faClock} />
             </div>
@@ -306,8 +421,14 @@ const Reports: React.FC = () => {
               <span className="stat-value">{stats.overview.pending}</span>
               <span className="stat-label">Pending</span>
             </div>
+            {filters.status === 'PENDING' && <div className="stat-active-indicator" />}
           </div>
-          <div className="stat-card reviewing">
+          
+          <div 
+            className={`stat-card reviewing ${filters.status === 'REVIEWING' ? 'active' : ''}`}
+            onClick={() => handleStatClick('REVIEWING')}
+            style={{ cursor: 'pointer' }}
+          >
             <div className="stat-icon">
               <FontAwesomeIcon icon={faSpinner} />
             </div>
@@ -315,8 +436,14 @@ const Reports: React.FC = () => {
               <span className="stat-value">{stats.overview.reviewing}</span>
               <span className="stat-label">Reviewing</span>
             </div>
+            {filters.status === 'REVIEWING' && <div className="stat-active-indicator" />}
           </div>
-          <div className="stat-card resolved">
+          
+          <div 
+            className={`stat-card resolved ${filters.status === 'RESOLVED' ? 'active' : ''}`}
+            onClick={() => handleStatClick('RESOLVED')}
+            style={{ cursor: 'pointer' }}
+          >
             <div className="stat-icon">
               <FontAwesomeIcon icon={faCheckCircle} />
             </div>
@@ -324,8 +451,14 @@ const Reports: React.FC = () => {
               <span className="stat-value">{stats.overview.resolved}</span>
               <span className="stat-label">Resolved</span>
             </div>
+            {filters.status === 'RESOLVED' && <div className="stat-active-indicator" />}
           </div>
-          <div className="stat-card dismissed">
+          
+          <div 
+            className={`stat-card dismissed ${filters.status === 'DISMISSED' ? 'active' : ''}`}
+            onClick={() => handleStatClick('DISMISSED')}
+            style={{ cursor: 'pointer' }}
+          >
             <div className="stat-icon">
               <FontAwesomeIcon icon={faTimes} />
             </div>
@@ -333,7 +466,9 @@ const Reports: React.FC = () => {
               <span className="stat-value">{stats.overview.dismissed}</span>
               <span className="stat-label">Dismissed</span>
             </div>
+            {filters.status === 'DISMISSED' && <div className="stat-active-indicator" />}
           </div>
+          
           <div className="stat-card rate">
             <div className="stat-icon">
               <FontAwesomeIcon icon={faCheckCircle} />
@@ -422,84 +557,97 @@ const Reports: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {reports.map((report) => (
-                      <tr 
-                        key={report.id} 
-                        onClick={() => handleRowClick(report)}
-                        className={`report-row ${selectedRowId === report.id ? 'selected' : ''}`}
-                      >
-                        <td>
-                          <span className={`status-badge ${getStatusBadgeClass(report.status)}`}>
-                            <FontAwesomeIcon icon={getStatusIcon(report.status)} />
-                            {report.status}
-                          </span>
-                        </td>
-                        <td>
-                          <span className={`type-badge ${getTypeClass(report.type)}`}>
-                            <span>{getTypeIcon(report.type)}</span>
-                            {report.type.replace(/_/g, ' ')}
-                          </span>
-                        </td>
-                        <td>
-                          <div className="group-cell">
-                            {report.group.avatarUrl ? (
-                              <img src={report.group.avatarUrl} alt="" className="group-avatar" />
-                            ) : (
-                              <div className="group-avatar-placeholder">
-                                {report.group.name.charAt(0)}
-                              </div>
-                            )}
-                            <span>{report.group.name}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="user-cell">
-                            {report.reporter.avatarUrl ? (
-                              <img src={report.reporter.avatarUrl} alt="" className="user-avatar" />
-                            ) : (
-                              <div className="user-avatar-placeholder">
-                                {report.reporter.fullName.charAt(0)}
-                              </div>
-                            )}
-                            <span>{report.reporter.fullName}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="description-cell" title={report.description}>
-                            {report.description.length > 50 
-                              ? `${report.description.substring(0, 50)}...` 
-                              : report.description}
-                          </div>
-                        </td>
-                        <td>
-                          <div className="date-cell">
-                            <FontAwesomeIcon icon={faCalendarAlt} />
-                            {getTimeAgo(report.createdAt)}
-                          </div>
-                        </td>
-                        <td onClick={(e) => e.stopPropagation()}>
-                          <div className="action-buttons">
-                            <button 
-                              className="action-btn view"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleViewDetails(report);
-                              }}
-                              title="View Details"
-                            >
-                              <FontAwesomeIcon icon={faEye} />
-                            </button>
-                            <button 
-                              className="action-btn update"
-                              onClick={(e) => handleUpdateClick(e, report)}
-                              title="Update Status"
-                            >
-                              <FontAwesomeIcon icon={faCheck} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                   {reports.map((report, index) => {
+  // 👈 Move console.log here, outside JSX
+  console.log('Rendering status:', report.status);
+  
+  return (
+    <tr 
+      key={`${report.id}-${report.status}-${report.resolvedAt || index}`} 
+      onClick={() => handleRowClick(report)}
+      className={`report-row ${selectedRowId === report.id ? 'selected' : ''}`}
+    >
+      <td>
+        <span className={`status-badge ${getStatusBadgeClass(report.status)}`}>
+          <FontAwesomeIcon icon={getStatusIcon(report.status)} />
+          {report.status}
+        </span>
+      </td>
+      <td>
+        <span className={`type-badge ${getTypeClass(report.type)}`}>
+          <span>{getTypeIcon(report.type)}</span>
+          {report.type?.replace(/_/g, ' ') || 'Unknown'}
+        </span>
+      </td>
+      <td>
+        <div className="group-cell">
+          {report.group?.avatarUrl ? (
+            <SafeImage 
+              src={report.group.avatarUrl} 
+              className="group-avatar"
+              fallbackChar={report.group?.name?.charAt(0) || 'G'}
+            />
+          ) : (
+            <div className="group-avatar-placeholder">
+              {report.group?.name?.charAt(0) || 'G'}
+            </div>
+          )}
+          <span>{report.group?.name || 'Unknown Group'}</span>
+        </div>
+      </td>
+      <td>
+        <div className="user-cell">
+          {report.reporter?.avatarUrl ? (
+            <SafeImage 
+              src={report.reporter.avatarUrl} 
+              className="user-avatar"
+              fallbackChar={report.reporter?.fullName?.charAt(0) || 'U'}
+            />
+          ) : (
+            <div className="user-avatar-placeholder">
+              {report.reporter?.fullName?.charAt(0) || 'U'}
+            </div>
+          )}
+          <span>{report.reporter?.fullName || 'Unknown User'}</span>
+        </div>
+      </td>
+      <td>
+        <div className="description-cell" title={report.description}>
+          {report.description?.length > 50 
+            ? `${report.description.substring(0, 50)}...` 
+            : report.description || 'No description'}
+        </div>
+      </td>
+      <td>
+        <div className="date-cell">
+          <FontAwesomeIcon icon={faCalendarAlt} />
+          {getTimeAgo(report.createdAt)}
+        </div>
+      </td>
+      <td onClick={(e) => e.stopPropagation()}>
+        <div className="action-buttons">
+          <button 
+            className="action-btn view"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleViewFullDetails(report);
+            }}
+            title="View Details"
+          >
+            <FontAwesomeIcon icon={faEye} />
+          </button>
+          <button 
+            className="action-btn update"
+            onClick={(e) => handleUpdateClick(e, report)}
+            title="Update Status"
+          >
+            <FontAwesomeIcon icon={faCheck} />
+          </button>
+        </div>
+      </td>
+    </tr>  
+  ); 
+})}
                   </tbody>
                 </table>
               </div>
@@ -555,7 +703,7 @@ const Reports: React.FC = () => {
                   <span className="detail-label">Type:</span>
                   <span className={`type-badge ${getTypeClass(selectedReport.type)}`}>
                     <span>{getTypeIcon(selectedReport.type)}</span>
-                    {selectedReport.type.replace(/_/g, ' ')}
+                    {selectedReport.type?.replace(/_/g, ' ') || 'Unknown'}
                   </span>
                 </div>
                 <div className="detail-row">
@@ -580,17 +728,17 @@ const Reports: React.FC = () => {
                 <h3>Group Information</h3>
                 <div className="detail-row">
                   <span className="detail-label">Name:</span>
-                  <span>{selectedReport.group.name}</span>
+                  <span>{selectedReport.group?.name || 'Unknown'}</span>
                 </div>
                 <div className="detail-row">
                   <span className="detail-label">Members:</span>
-                  <span><FontAwesomeIcon icon={faUsers} /> {selectedReport.group._count.members}</span>
+                  <span><FontAwesomeIcon icon={faUsers} /> {selectedReport.group?._count?.members || 0}</span>
                 </div>
                 <div className="detail-row">
                   <span className="detail-label">Tasks:</span>
-                  <span><FontAwesomeIcon icon={faFlag} /> {selectedReport.group._count.tasks}</span>
+                  <span><FontAwesomeIcon icon={faFlag} /> {selectedReport.group?._count?.tasks || 0}</span>
                 </div>
-                {selectedReport.group.description && (
+                {selectedReport.group?.description && (
                   <div className="detail-row description">
                     <span className="detail-label">Description:</span>
                     <p>{selectedReport.group.description}</p>
@@ -602,18 +750,18 @@ const Reports: React.FC = () => {
                 <h3>Reporter Information</h3>
                 <div className="detail-row">
                   <span className="detail-label">Name:</span>
-                  <span>{selectedReport.reporter.fullName}</span>
+                  <span>{selectedReport.reporter?.fullName || 'Unknown'}</span>
                 </div>
                 <div className="detail-row">
                   <span className="detail-label">Email:</span>
-                  <span>{selectedReport.reporter.email}</span>
+                  <span>{selectedReport.reporter?.email || 'Unknown'}</span>
                 </div>
               </div>
 
               <div className="details-section">
                 <h3>Report Description</h3>
                 <div className="description-box">
-                  {selectedReport.description}
+                  {selectedReport.description || 'No description provided'}
                 </div>
               </div>
 
@@ -634,7 +782,9 @@ const Reports: React.FC = () => {
                 className="modal-confirm"
                 onClick={() => {
                   closeModal();
-                  handleUpdateClick({ stopPropagation: () => {} } as React.MouseEvent, selectedReport);
+                  setTimeout(() => {
+                    handleUpdateClick({ stopPropagation: () => {} } as React.MouseEvent, selectedReport);
+                  }, 300);
                 }}
               >
                 Update Status
@@ -698,4 +848,4 @@ const Reports: React.FC = () => {
   ); 
 };
 
-export default Reports; 
+export default Reports;

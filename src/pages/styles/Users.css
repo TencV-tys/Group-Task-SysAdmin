@@ -1,4 +1,5 @@
-/* styles/Users.css */
+/* styles/Users.css - COMPLETE UPDATED VERSION */
+
 .users-wrapper {
   min-height: 100vh;
   background: #f8f9fa;
@@ -41,6 +42,223 @@
   font-size: 15px;
   color: #6b7280;
   margin: 0;
+}
+
+/* ===== STATS CARDS ===== */
+.users-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.users-stat-card {
+  background: white;
+  border-radius: 16px;
+  padding: 20px;
+  border: 2px solid #e9ecef;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+/* Hover effect */
+.users-stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  border-color: #adb5bd;
+}
+
+/* Active state */
+.users-stat-card.active {
+  border-width: 3px;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+}
+
+/* Active indicator line at top */
+.users-stat-card.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: currentColor;
+  opacity: 0.3;
+}
+
+/* Active glow effect */
+.users-stat-card.active::after {
+  content: '';
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 60px;
+  height: 60px;
+  background: radial-gradient(circle, currentColor 0%, transparent 70%);
+  opacity: 0.1;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.users-stat-value {
+  display: block;
+  font-size: 28px;
+  font-weight: 700;
+  color: #212529;
+  margin-bottom: 4px;
+  transition: transform 0.2s ease;
+}
+
+.users-stat-card.active .users-stat-value {
+  transform: scale(1.05);
+}
+
+.users-stat-label {
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.users-stat-card.active .users-stat-label {
+  color: #212529;
+  font-weight: 600;
+}
+
+/* Card-specific colors */
+.users-stat-card:nth-child(1) .users-stat-value {
+  color: #2b8a3e;
+}
+.users-stat-card:nth-child(1).active {
+  background: linear-gradient(135deg, #d3f9d8, white);
+  border-color: #2b8a3e;
+}
+
+.users-stat-card:nth-child(2) .users-stat-value {
+  color: #1c7ed6;
+}
+.users-stat-card:nth-child(2).active {
+  background: linear-gradient(135deg, #d0ebff, white);
+  border-color: #1c7ed6;
+}
+
+.users-stat-card:nth-child(3) .users-stat-value {
+  color: #e67700;
+}
+.users-stat-card:nth-child(3).active {
+  background: linear-gradient(135deg, #fff3bf, white);
+  border-color: #e67700;
+}
+
+.users-stat-card:nth-child(4) .users-stat-value {
+  color: #6741d9;
+}
+.users-stat-card:nth-child(4).active {
+  background: linear-gradient(135deg, #ede9fe, white);
+  border-color: #6741d9;
+}
+
+.stat-active-indicator {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.7;
+  }
+}
+
+/* ===== ACTIVE FILTERS ===== */
+.users-active-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e9ecef;
+  flex-wrap: wrap;
+}
+
+.users-active-filters-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #495057;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.users-filter-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: #f1f3f5;
+  border-radius: 20px;
+  font-size: 13px;
+  color: #495057;
+  font-weight: 500;
+  border: 1px solid #dee2e6;
+}
+
+.users-filter-tag button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: none;
+  color: #868e96;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.users-filter-tag button:hover {
+  background: #dee2e6;
+  color: #fa5252;
+}
+
+.users-clear-filters {
+  margin-left: auto;
+  padding: 4px 12px;
+  background: none;
+  border: 1px solid #e9ecef;
+  border-radius: 20px;
+  font-size: 12px;
+  color: #868e96;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.users-clear-filters:hover {
+  background: #f1f3f5;
+  border-color: #fa5252;
+  color: #fa5252;
 }
 
 /* Search */
@@ -460,6 +678,10 @@
   .users-container {
     padding: 24px;
   }
+  
+  .users-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 @media (max-width: 768px) {
@@ -495,6 +717,17 @@
     padding: 8px 20px;
     min-width: 80px;
   }
+  
+  .users-active-filters {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .users-clear-filters {
+    margin-left: 0;
+    width: 100%;
+    text-align: center;
+  }
 }
 
 @media (max-width: 640px) {
@@ -504,6 +737,10 @@
   
   .users-title {
     font-size: 24px;
+  }
+  
+  .users-stats {
+    grid-template-columns: 1fr;
   }
   
   .users-table th:nth-child(3),
@@ -537,6 +774,11 @@
   .users-view-btn svg {
     margin-right: 0;
   }
+  
+  .users-filter-tag {
+    width: 100%;
+    justify-content: space-between;
+  }
 }
 
 /* Print Styles */
@@ -547,12 +789,85 @@
   
   .users-search,
   .users-view-btn,
-  .users-pagination {
-    display: none;
+  .users-pagination,
+  .users-stats,
+  .users-active-filters {
+    display: none; 
   }
   
   .users-table-container {
     border: none;
     box-shadow: none;
   }
+  /* Add to your Users.css */
+
+/* User Avatar with SafeImage support */
+.users-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 600;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.user-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.user-avatar-img-placeholder {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2b8a3e, #1e6b2c);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  text-transform: uppercase;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Remove the old users-avatar styles and replace with these */
+.users-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 600;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+}
+
+/* If you want to keep the gradient for the placeholder, add this */
+.user-avatar-img-placeholder {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2b8a3e, #1e6b2c);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  text-transform: uppercase;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
 }

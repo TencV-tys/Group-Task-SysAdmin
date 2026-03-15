@@ -14,6 +14,17 @@ export interface User {
   groupsCount: number;
   tasksCompleted: number;
 }
+export interface UserStats {
+  total: number;
+  active: number;
+  suspended: number;
+  groupAdmins:number; 
+  admins: number;
+  newToday?: number;
+  newThisWeek?: number;
+  newThisMonth?: number;
+}
+
 
 export interface UserDetails extends User {
   groups: Array<{
@@ -147,6 +158,25 @@ class AdminUsersServiceClass {
       };
     }
   }
+
+  static async getUserStats(): Promise<{ success: boolean; data?: UserStats; message?: string }> {
+  try {
+    const response = await fetch(`${API_URL}/api/admin/users/stats`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: await this.getHeaders()
+    });
+
+    const result = await response.json();
+    return result;
+  } catch (error) {
+    console.error('Error fetching user stats:', error);
+    return {
+      success: false,
+      message: 'Failed to fetch user statistics'
+    };
+  }
+}
 }
 
 export const AdminUsersService = AdminUsersServiceClass;

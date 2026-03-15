@@ -1,4 +1,4 @@
-// pages/Feedback.tsx
+// pages/Feedback.tsx - WITH CLICKABLE STATS CARDS
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAdminFeedback } from '../hooks/useAdminFeedback';
 import FeedbackModal from '../components/FeedbackModal';
@@ -37,7 +37,8 @@ const Feedback = () => {
   const fetchInProgress = useRef(false);
   const searchTimeoutRef = useRef<number|undefined>(undefined);
   const statusTimeoutRef = useRef<number|undefined>(undefined);
- const initialFetchDone = useRef(false);
+  const initialFetchDone = useRef(false);
+  
   // Fetch stats once on mount
   useEffect(() => { 
     fetchStats();
@@ -83,27 +84,35 @@ const Feedback = () => {
   }, [statusFilter]);
 
   useEffect(() => {
-  const loadFeedback = async () => {
-    if (fetchInProgress.current || initialFetchDone.current) return;
+    const loadFeedback = async () => {
+      if (fetchInProgress.current || initialFetchDone.current) return;
+      
+      fetchInProgress.current = true;
+      initialFetchDone.current = true;
+      
+      try {
+        await fetchFeedback({ 
+          page: currentPage, 
+          limit: 10,
+          status: debouncedStatus || undefined,
+          search: debouncedSearch || undefined
+        });
+      } finally {
+        fetchInProgress.current = false;
+        setInitialLoad(false);
+      }
+    };
     
-    fetchInProgress.current = true;
-    initialFetchDone.current = true;
-    
-    try {
-      await fetchFeedback({ 
-        page: currentPage, 
-        limit: 10,
-        status: debouncedStatus || undefined,
-        search: debouncedSearch || undefined
-      });
-    } finally {
-      fetchInProgress.current = false;
-      setInitialLoad(false);
-    }
+    loadFeedback();
+  }, [currentPage, debouncedStatus, debouncedSearch, fetchFeedback]);
+
+  // ===== NEW: Handle stat card click =====
+  const handleStatClick = (status: string) => {
+    setStatusFilter(status);
+    setDebouncedStatus(status);
+    setCurrentPage(1);
   };
- 
-  loadFeedback();
-}, [currentPage, debouncedStatus, debouncedSearch, fetchFeedback]);
+
   // Safety effect to prevent infinite loading
   useEffect(() => {
     let timeoutId: number;
@@ -277,28 +286,57 @@ const Feedback = () => {
           </div>
         </div>
 
-        {/* Stats Cards */}
+        {/* Stats Cards - NOW CLICKABLE */}
         {stats && (
           <div className="feedback-stats">
-            <div className="feedback-stat-card open">
+            <div 
+              className={`feedback-stat-card open ${debouncedStatus === 'OPEN' ? 'active' : ''}`}
+              onClick={() => handleStatClick('OPEN')}
+              style={{ cursor: 'pointer' }}
+            >
               <span className="feedback-stat-value">{stats.open}</span>
               <span className="feedback-stat-label">Open</span>
+              {debouncedStatus === 'OPEN' && <div className="stat-active-indicator" />}
             </div>
-            <div className="feedback-stat-card progress">
+            
+            <div 
+              className={`feedback-stat-card progress ${debouncedStatus === 'IN_PROGRESS' ? 'active' : ''}`}
+              onClick={() => handleStatClick('IN_PROGRESS')}
+              style={{ cursor: 'pointer' }}
+            >
               <span className="feedback-stat-value">{stats.inProgress}</span>
               <span className="feedback-stat-label">In Progress</span>
+              {debouncedStatus === 'IN_PROGRESS' && <div className="stat-active-indicator" />}
             </div>
-            <div className="feedback-stat-card resolved">
+            
+            <div 
+              className={`feedback-stat-card resolved ${debouncedStatus === 'RESOLVED' ? 'active' : ''}`}
+              onClick={() => handleStatClick('RESOLVED')}
+              style={{ cursor: 'pointer' }}
+            >
               <span className="feedback-stat-value">{stats.resolved}</span>
               <span className="feedback-stat-label">Resolved</span>
+              {debouncedStatus === 'RESOLVED' && <div className="stat-active-indicator" />}
             </div>
-            <div className="feedback-stat-card closed">
+            
+            <div 
+              className={`feedback-stat-card closed ${debouncedStatus === 'CLOSED' ? 'active' : ''}`}
+              onClick={() => handleStatClick('CLOSED')}
+              style={{ cursor: 'pointer' }}
+            >
               <span className="feedback-stat-value">{stats.closed}</span>
               <span className="feedback-stat-label">Closed</span>
+              {debouncedStatus === 'CLOSED' && <div className="stat-active-indicator" />}
             </div>
-            <div className="feedback-stat-card total">
+            
+            <div 
+              className={`feedback-stat-card total ${debouncedStatus === '' ? 'active' : ''}`}
+              onClick={() => handleStatClick('')}
+              style={{ cursor: 'pointer' }}
+            >
               <span className="feedback-stat-value">{stats.total}</span>
               <span className="feedback-stat-label">Total</span>
+              {debouncedStatus === '' && <div className="stat-active-indicator" />}
             </div>
           </div>
         )}
@@ -380,7 +418,7 @@ const Feedback = () => {
         {error && <ErrorDisplay message={error} onRetry={() => {
           fetchFeedback({ 
             page: currentPage, 
-            limit: 10, // Hardcoded limit
+            limit: 10,
             status: debouncedStatus || undefined,
             search: debouncedSearch || undefined
           });
@@ -535,5 +573,5 @@ const Feedback = () => {
     </div>
   );
 };
-
+ 
 export default Feedback;

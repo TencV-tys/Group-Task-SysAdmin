@@ -1,4 +1,4 @@
-// hooks/useAdminNotifications.ts
+// hooks/useAdminNotifications.ts - FIXED LOADING STATES
 import { useCallback, useState, useRef, useEffect } from 'react';
 import { AdminNotificationsService } from '../services/admin.notifications.service';
 import { useDataCache } from './useDataCache';
@@ -56,19 +56,16 @@ interface DeleteResult {
 }
 
 export function useAdminNotifications() {
-  // Operation-specific loading states
-  const [fetchLoading, setFetchLoading] = useState(false);
-  const [markReadLoading, setMarkReadLoading] = useState(false);
-  const [deleteLoading, setDeleteLoading] = useState(false);
+  // Single combined loading state
+  const [loading, setLoading] = useState(true);
   
   // Local state for optimistic updates
   const [localUnreadCount, setLocalUnreadCount] = useState<number>(0);
   
   // Refs
   const isMountedRef = useRef(true);
-  const refreshInProgress = useRef(false);
   const fetchCountRef = useRef(0);
-  const forcedResetRef = useRef(false);
+  const initialLoadDone = useRef(false);
 
   // Cache for notifications list
   const {
@@ -108,19 +105,15 @@ export function useAdminNotifications() {
     30 * 1000
   );
 
-  // Combined loading state
-  const loading = cacheLoading || fetchLoading || markReadLoading || deleteLoading;
-  
-  // Debug logs
-  console.log('🔧 useAdminNotifications loading states:', {
-    cacheLoading,
-    fetchLoading,
-    markReadLoading,
-    deleteLoading,
-    combined: loading,
-    hasNotifications: notificationsData?.notifications?.length || 0,
-    notificationsData: notificationsData ? 'exists' : 'null'
-  });
+  // Update loading state based on cache loading
+  useEffect(() => {
+    if (!initialLoadDone.current) {
+      setLoading(cacheLoading);
+      if (!cacheLoading) {
+        initialLoadDone.current = true;
+      }
+    }
+  }, [cacheLoading]);
 
   const notifications = notificationsData?.notifications || [];
   const unreadCount = unreadData?.count ?? localUnreadCount;
@@ -131,29 +124,8 @@ export function useAdminNotifications() {
     pages: 0
   };
 
-  // Force reset loading states if stuck
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (fetchLoading && !forcedResetRef.current) {
-        console.log('⚠️ Forced reset - fetchLoading stuck');
-        setFetchLoading(false);
-        forcedResetRef.current = true;
-        
-        // Reset the flag after a while
-        setTimeout(() => {
-          forcedResetRef.current = false;
-        }, 1000);
-      }
-    }, 2000);
-    
-    return () => clearInterval(interval);
-  }, [fetchLoading]); // Include fetchLoading in dependencies
-
-  // Silent refresh function (doesn't affect fetchLoading)
+  // Silent refresh function
   const silentRefresh = useCallback(async () => {
-    if (refreshInProgress.current || !isMountedRef.current) return;
-    
-    refreshInProgress.current = true;
     console.log('🔄 Silent refresh started');
     
     try {
@@ -164,107 +136,54 @@ export function useAdminNotifications() {
       console.log('✅ Silent refresh complete');
     } catch (error) {
       console.error('❌ Silent refresh failed:', error);
-    } finally {
-      refreshInProgress.current = false;
     }
   }, [refreshNotificationsCache, refreshUnreadCache]);
 
   // Fetch notifications with filters
   const fetchNotifications = useCallback(async (filters?: NotificationFilters): Promise<FetchNotificationsResult> => {
-    if (!isMountedRef.current) {
-      return { success: false, message: 'Component unmounted' };
-    }
-
     const currentFetchId = ++fetchCountRef.current;
     console.log(`📥 fetchNotifications #${currentFetchId} started with filters:`, filters);
     
-    setFetchLoading(true);
-    
-    // Safety timeout to force reset loading state
-    const safetyTimeout = setTimeout(() => {
-      if (isMountedRef.current) {
-        console.log(`⚠️ Safety timeout #${currentFetchId} - forcing fetchLoading to false`);
-        setFetchLoading(false);
-      }
-    }, 3000);
+    // Only set loading true if this is the first fetch
+    if (currentFetchId === 1) {
+      setLoading(true);
+    }
     
     try {
       const result = await AdminNotificationsService.getNotifications(filters);
       
       console.log(`📥 fetchNotifications #${currentFetchId} result:`, result);
-      clearTimeout(safetyTimeout);
-      
-      if (!isMountedRef.current) {
-        return { success: false, message: 'Component unmounted' };
-      }
 
       if (result.success && result.data) {
-        // Trigger silent refresh in background without affecting loading
-        Promise.resolve().then(() => {
+        // Trigger silent refresh in background
+        setTimeout(() => {
           if (isMountedRef.current) {
             silentRefresh().catch(() => {});
           }
-        });
+        }, 100);
         
         return { success: true, data: result.data };
       }
       return { success: false, message: result.message };
     } catch (error) {
-      clearTimeout(safetyTimeout);
       const errorMessage = error instanceof Error ? error.message : 'Failed to fetch notifications';
       return { success: false, message: errorMessage };
     } finally {
-      console.log(`📥 fetchNotifications #${currentFetchId} finally block - setting fetchLoading to false`);
-      clearTimeout(safetyTimeout);
-      
-      // Multiple attempts to set loading to false
-      if (isMountedRef.current) {
-        // Immediate attempt
-        setFetchLoading(false);
-        
-        // Queue microtask attempt
-        queueMicrotask(() => {
-          if (isMountedRef.current) {
-            setFetchLoading(false);
-          }
-        });
-        
-        // Timeout attempt
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            setFetchLoading(false);
-            console.log(`✅ fetchLoading #${currentFetchId} set to false (timeout backup)`);
-          }
-        }, 50);
+      console.log(`📥 fetchNotifications #${currentFetchId} finally block`);
+      // Only set loading false if this is the last fetch
+      if (currentFetchId === fetchCountRef.current) {
+        setLoading(false);
       }
     }
-  }, [silentRefresh]); // Remove fetchLoading from dependencies
+  }, [silentRefresh]);
 
   // Fetch unread count
   const fetchUnreadCount = useCallback(async (): Promise<FetchUnreadResult> => {
-    if (!isMountedRef.current) {
-      return { success: false, message: 'Component unmounted' };
-    }
-
     console.log('📥 fetchUnreadCount started');
-    setFetchLoading(true);
-    
-    const safetyTimeout = setTimeout(() => {
-      if (isMountedRef.current) {
-        console.log('⚠️ Safety timeout - forcing fetchLoading to false');
-        setFetchLoading(false);
-      }
-    }, 5000);
     
     try {
       const result = await AdminNotificationsService.getUnreadCount();
-      
       console.log('📥 fetchUnreadCount result:', result);
-      clearTimeout(safetyTimeout);
-      
-      if (!isMountedRef.current) {
-        return { success: false, message: 'Component unmounted' };
-      }
 
       if (result.success && result.data) {
         await refreshUnreadCache();
@@ -272,21 +191,8 @@ export function useAdminNotifications() {
       }
       return { success: false, message: result.message };
     } catch (error) {
-      clearTimeout(safetyTimeout);
       const errorMessage = error instanceof Error ? error.message : 'Failed to load count';
       return { success: false, message: errorMessage };
-    } finally {
-      console.log('📥 fetchUnreadCount finally block - setting fetchLoading to false');
-      clearTimeout(safetyTimeout);
-      
-      if (isMountedRef.current) {
-        setFetchLoading(false);
-        queueMicrotask(() => {
-          if (isMountedRef.current) {
-            setFetchLoading(false);
-          }
-        });
-      }
     }
   }, [refreshUnreadCache]);
 
@@ -306,39 +212,21 @@ export function useAdminNotifications() {
 
   // Mark as read
   const markAsRead = useCallback(async (notificationId: string): Promise<MarkReadResult> => {
-    if (!isMountedRef.current) {
-      return { success: false, message: 'Component unmounted' };
-    }
-
     console.log('📥 markAsRead started:', notificationId);
     
     // Optimistic update
     setLocalUnreadCount(prev => Math.max(0, prev - 1));
-    setMarkReadLoading(true);
-    
-    const safetyTimeout = setTimeout(() => {
-      if (isMountedRef.current) {
-        console.log('⚠️ Safety timeout - forcing markReadLoading to false');
-        setMarkReadLoading(false);
-      }
-    }, 5000);
 
     try {
       const result = await AdminNotificationsService.markAsRead(notificationId);
-      
-      clearTimeout(safetyTimeout);
-      
-      if (!isMountedRef.current) {
-        return { success: false, message: 'Component unmounted' };
-      }
 
       if (result.success) {
         // Trigger silent refresh
-        Promise.resolve().then(() => {
+        setTimeout(() => {
           if (isMountedRef.current) {
             silentRefresh().catch(() => {});
           }
-        });
+        }, 100);
         window.dispatchEvent(new Event('notification-updated'));
         return { success: true, data: result.data };
       }
@@ -346,48 +234,19 @@ export function useAdminNotifications() {
       setLocalUnreadCount(prev => prev + 1);
       return { success: false, message: result.message };
     } catch (error) {
-      clearTimeout(safetyTimeout);
       setLocalUnreadCount(prev => prev + 1);
       const errorMessage = error instanceof Error ? error.message : 'Failed to mark as read';
       return { success: false, message: errorMessage };
-    } finally {
-      clearTimeout(safetyTimeout);
-      if (isMountedRef.current) {
-        setMarkReadLoading(false);
-        queueMicrotask(() => {
-          if (isMountedRef.current) {
-            setMarkReadLoading(false);
-          }
-        });
-      }
     }
   }, [silentRefresh]);
 
   // Mark all as read
   const markAllAsRead = useCallback(async (): Promise<MarkAllReadResult> => {
-    if (!isMountedRef.current) {
-      return { success: false, message: 'Component unmounted' };
-    }
-
     const previousCount = unreadCount;
     setLocalUnreadCount(0);
-    setMarkReadLoading(true);
-    
-    const safetyTimeout = setTimeout(() => {
-      if (isMountedRef.current) {
-        console.log('⚠️ Safety timeout - forcing markReadLoading to false');
-        setMarkReadLoading(false);
-      }
-    }, 5000);
 
     try {
       const result = await AdminNotificationsService.markAllAsRead();
-      
-      clearTimeout(safetyTimeout);
-      
-      if (!isMountedRef.current) {
-        return { success: false, message: 'Component unmounted' };
-      }
 
       if (result.success) {
         await silentRefresh();
@@ -397,46 +256,16 @@ export function useAdminNotifications() {
       setLocalUnreadCount(previousCount);
       return { success: false, message: result.message };
     } catch (error) {
-      clearTimeout(safetyTimeout);
       setLocalUnreadCount(previousCount);
       const errorMessage = error instanceof Error ? error.message : 'Failed to mark all';
       return { success: false, message: errorMessage };
-    } finally {
-      clearTimeout(safetyTimeout);
-      if (isMountedRef.current) {
-        setMarkReadLoading(false);
-        queueMicrotask(() => {
-          if (isMountedRef.current) {
-            setMarkReadLoading(false);
-          }
-        });
-      }
     }
   }, [unreadCount, silentRefresh]);
 
   // Delete notification
   const deleteNotification = useCallback(async (notificationId: string): Promise<DeleteResult> => {
-    if (!isMountedRef.current) {
-      return { success: false, message: 'Component unmounted' };
-    }
-
-    setDeleteLoading(true);
-    
-    const safetyTimeout = setTimeout(() => {
-      if (isMountedRef.current) {
-        console.log('⚠️ Safety timeout - forcing deleteLoading to false');
-        setDeleteLoading(false);
-      }
-    }, 5000);
-
     try {
       const result = await AdminNotificationsService.deleteNotification(notificationId);
-      
-      clearTimeout(safetyTimeout);
-      
-      if (!isMountedRef.current) {
-        return { success: false, message: 'Component unmounted' };
-      }
 
       if (result.success) {
         await silentRefresh();
@@ -445,45 +274,15 @@ export function useAdminNotifications() {
       }
       return { success: false, message: result.message };
     } catch (error) {
-      clearTimeout(safetyTimeout);
       const errorMessage = error instanceof Error ? error.message : 'Failed to delete';
       return { success: false, message: errorMessage };
-    } finally {
-      clearTimeout(safetyTimeout);
-      if (isMountedRef.current) {
-        setDeleteLoading(false);
-        queueMicrotask(() => {
-          if (isMountedRef.current) {
-            setDeleteLoading(false);
-          }
-        });
-      }
     }
   }, [silentRefresh]);
 
   // Delete all read
   const deleteAllRead = useCallback(async (): Promise<DeleteResult> => {
-    if (!isMountedRef.current) {
-      return { success: false, message: 'Component unmounted' };
-    }
-
-    setDeleteLoading(true);
-    
-    const safetyTimeout = setTimeout(() => {
-      if (isMountedRef.current) {
-        console.log('⚠️ Safety timeout - forcing deleteLoading to false');
-        setDeleteLoading(false);
-      }
-    }, 5000);
-
     try {
       const result = await AdminNotificationsService.deleteAllRead();
-      
-      clearTimeout(safetyTimeout);
-      
-      if (!isMountedRef.current) {
-        return { success: false, message: 'Component unmounted' };
-      }
 
       if (result.success) {
         await silentRefresh();
@@ -492,19 +291,8 @@ export function useAdminNotifications() {
       }
       return { success: false, message: result.message };
     } catch (error) {
-      clearTimeout(safetyTimeout);
       const errorMessage = error instanceof Error ? error.message : 'Failed to delete';
       return { success: false, message: errorMessage };
-    } finally {
-      clearTimeout(safetyTimeout);
-      if (isMountedRef.current) {
-        setDeleteLoading(false);
-        queueMicrotask(() => {
-          if (isMountedRef.current) {
-            setDeleteLoading(false);
-          }
-        });
-      }
     }
   }, [silentRefresh]);
 

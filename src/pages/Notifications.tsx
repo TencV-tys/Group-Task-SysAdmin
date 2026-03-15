@@ -11,7 +11,7 @@ const Notifications = () => {
   const navigate = useNavigate();
   const {
     notifications,
-    loading,
+    loading, 
     error,
     unreadCount,
     pagination,
