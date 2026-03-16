@@ -1,358 +1,240 @@
-// hooks/useAdminFeedback.ts
-import { useCallback, useState, useRef, useEffect } from 'react';
+// hooks/useAdminFeedback.ts - Simplified without cache
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
-import { useDataCache } from './useDataCache';
 import type { 
   Feedback, 
   FeedbackFilters,  
   FeedbackStats, 
-  FeedbackDetails,
-  FeedbackListResponse 
+
 } from '../services/admin.feedback.service';
 
-interface FeedbackListData {
-  feedback: Feedback[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    pages: number;
-  };
-}
-
-interface FetchFeedbackResult {
-  success: boolean;
-  data?: FeedbackListResponse['data'];
-  message?: string;
-}
-
-interface FetchStatsResult {
-  success: boolean;
-  data?: FeedbackStats;
-  message?: string;
-}
-
-interface FetchDetailsResult {
-  success: boolean;
-  data?: FeedbackDetails;
-  message?: string;
-}
-
-interface UpdateStatusResult {
-  success: boolean;
-  data?: FeedbackDetails;
-  message?: string;
-}
-
-interface DeleteResult {
-  success: boolean;
-  message?: string;
-}
-
 export function useAdminFeedback() {
-  // Operation-specific loading states
-  const [fetchLoading, setFetchLoading] = useState(false);
-  const [updateLoading, setUpdateLoading] = useState(false);
+  console.log('🏭 [useAdminFeedback] Hook initializing');
   
-  // Refs
-  const isMountedRef = useRef(true);
-  const refreshInProgress = useRef(false);
-  const statsFetchedRef = useRef(false);
-  const initialFetchDone = useRef(false);
-
-  // Cache for feedback list
-  const {
-    data: feedbackData,
-    loading: cacheLoading,
-    error: cacheError,
-    refresh: refreshFeedbackCache
-  } = useDataCache<FeedbackListData>(
-    'admin-feedback',
-    async () => {
-      const result = await AdminFeedbackService.getFeedback({ limit: 10 });
-      if (result.success && result.data) {
-        return {
-          feedback: result.data.feedback,
-          pagination: result.data.pagination
-        };
-      }
-      throw new Error(result.message || 'Failed to fetch feedback');
-    },
-    30 * 1000
-  );
-
-  // Cache for stats
-  const {
-    data: stats,
-    refresh: refreshStatsCache
-  } = useDataCache<FeedbackStats>(
-    'admin-feedback-stats',
-    async () => {
-      const result = await AdminFeedbackService.getFeedbackStats();
-      if (result.success && result.data) {
-        return result.data;
-      }
-      throw new Error(result.message || 'Failed to fetch stats');
-    },
-    30 * 1000
-  );
-
-  // Combined loading state
-  const loading = cacheLoading || fetchLoading || updateLoading;
-  const error = cacheError;
-
-  const pagination = feedbackData?.pagination || {
+  const [feedback, setFeedback] = useState<Feedback[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<FeedbackStats | null>(null);
+  const [pagination, setPagination] = useState({
     page: 1,
     limit: 10,
     total: 0,
     pages: 0
-  };
+  });
+  const [actionLoading, setActionLoading] = useState(false);
 
-  // Silent refresh function (doesn't affect fetchLoading)
-  const silentRefresh = useCallback(async () => {
-    if (refreshInProgress.current || !isMountedRef.current) return;
-    
-    refreshInProgress.current = true;
-    console.log('🔄 Silent feedback refresh started');
-    
-    try {
-      await Promise.all([
-        refreshFeedbackCache(),
-        refreshStatsCache()
-      ]);
-      console.log('✅ Silent feedback refresh complete');
-    } catch (error) {
-      console.error('❌ Silent feedback refresh failed:', error);
-    } finally {
-      refreshInProgress.current = false;
-    }
-  }, [refreshFeedbackCache, refreshStatsCache]);
+  const isMountedRef = useRef(true);
+  const fetchCountRef = useRef(0);
+  const statsFetchedRef = useRef(false);
+  const fetchInProgressRef = useRef(false);
 
-  const fetchFeedback = useCallback(async (filters?: FeedbackFilters): Promise<FetchFeedbackResult> => {
-    if (!isMountedRef.current) {
-      return { success: false, message: 'Component unmounted' };
-    }
-
-    console.log('📥 fetchFeedback started with filters:', filters);
-    setFetchLoading(true);
-    
-    const safetyTimeout = setTimeout(() => {
-      if (isMountedRef.current) {
-        console.log('⚠️ Safety timeout - forcing fetchLoading to false');
-        setFetchLoading(false);
-      }
-    }, 5000);
-    
-    try {
-      const result = await AdminFeedbackService.getFeedback(filters);
-      
-      console.log('📥 fetchFeedback result:', result);
-      clearTimeout(safetyTimeout);
-      
-      if (!isMountedRef.current) {
-        return { success: false, message: 'Component unmounted' };
-      }
-
-      if (result.success && result.data) {
-        // DON'T refresh cache here - let the component handle it via silentRefresh if needed
-        return { success: true, data: result.data };
-      }
-      return { success: false, message: result.message };
-    } catch (error) {
-      clearTimeout(safetyTimeout);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to fetch feedback';
-      return { success: false, message: errorMessage };
-    } finally {
-      console.log('📥 fetchFeedback finally block - setting fetchLoading to false');
-      clearTimeout(safetyTimeout);
-      
-      if (isMountedRef.current) {
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            setFetchLoading(false);
-            console.log('✅ fetchFeedback set to false');
-          }
-        }, 100);
-      }
-    }
-  }, []); // Remove refreshFeedbackCache dependency
-
-  const fetchStats = useCallback(async (): Promise<FetchStatsResult> => {
-    // Prevent multiple stats calls
-    if (statsFetchedRef.current) {
-      console.log('📊 Stats already fetched, returning cached');
-      return { success: true, data: stats || undefined };
-    }
-    
-    if (!isMountedRef.current) {
-      return { success: false, message: 'Component unmounted' };
-    }
-
-    console.log('📥 fetchStats started');
-    statsFetchedRef.current = true;
-    
-    const safetyTimeout = setTimeout(() => {
-      if (isMountedRef.current) {
-        console.log('⚠️ Safety timeout - stats fetch taking too long');
-      }
-    }, 5000);
-    
-    try {
-      const result = await AdminFeedbackService.getFeedbackStats();
-      
-      console.log('📥 fetchStats result:', result);
-      clearTimeout(safetyTimeout);
-      
-      if (!isMountedRef.current) {
-        return { success: false, message: 'Component unmounted' };
-      }
-
-      if (result.success && result.data) {
-        await refreshStatsCache();
-        return { success: true, data: result.data };
-      }
-      return { success: false, message: result.message };
-    } catch (error) {
-      clearTimeout(safetyTimeout);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to fetch stats';
-      return { success: false, message: errorMessage };
-    }
-  }, [refreshStatsCache, stats]);
-
-  const getFeedbackDetails = useCallback(async (feedbackId: string): Promise<FetchDetailsResult> => {
-    try {
-      const result = await AdminFeedbackService.getFeedbackById(feedbackId);
-      if (result.success && result.data) {
-        return { success: true, data: result.data };
-      }
-      return { success: false, message: result.message };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to load details';
-      return { success: false, message: errorMessage };
-    }
-  }, []);
-
-  const updateStatus = useCallback(async (feedbackId: string, status: string): Promise<UpdateStatusResult> => {
-    if (!isMountedRef.current) {
-      return { success: false, message: 'Component unmounted' };
-    }
-
-    console.log('📥 updateStatus started:', { feedbackId, status });
-    setUpdateLoading(true);
-    
-    const safetyTimeout = setTimeout(() => {
-      if (isMountedRef.current) {
-        console.log('⚠️ Safety timeout - forcing updateLoading to false');
-        setUpdateLoading(false);
-      }
-    }, 5000);
-
-    try {
-      const result = await AdminFeedbackService.updateFeedbackStatus(feedbackId, status);
-      
-      clearTimeout(safetyTimeout);
-      
-      if (!isMountedRef.current) {
-        return { success: false, message: 'Component unmounted' };
-      }
-
-      if (result.success) {
-        await silentRefresh();
-        window.dispatchEvent(new Event('feedback-updated'));
-        return { success: true, data: result.data };
-      }
-      return { success: false, message: result.message };
-    } catch (error) {
-      clearTimeout(safetyTimeout);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update';
-      return { success: false, message: errorMessage };
-    } finally {
-      clearTimeout(safetyTimeout);
-      if (isMountedRef.current) {
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            setUpdateLoading(false);
-            console.log('✅ updateLoading set to false');
-          }
-        }, 100);
-      }
-    }
-  }, [silentRefresh]);
-
-  const deleteFeedback = useCallback(async (feedbackId: string): Promise<DeleteResult> => {
-    if (!isMountedRef.current) {
-      return { success: false, message: 'Component unmounted' };
-    }
-
-    console.log('📥 deleteFeedback started:', feedbackId);
-    setUpdateLoading(true);
-    
-    const safetyTimeout = setTimeout(() => {
-      if (isMountedRef.current) {
-        console.log('⚠️ Safety timeout - forcing updateLoading to false');
-        setUpdateLoading(false);
-      }
-    }, 5000);
-
-    try {
-      const result = await AdminFeedbackService.deleteFeedback(feedbackId);
-      
-      clearTimeout(safetyTimeout);
-      
-      if (!isMountedRef.current) {
-        return { success: false, message: 'Component unmounted' };
-      }
-
-      if (result.success) {
-        await silentRefresh();
-        window.dispatchEvent(new Event('feedback-updated'));
-        return { success: true };
-      }
-      return { success: false, message: result.message };
-    } catch (error) {
-      clearTimeout(safetyTimeout);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to delete';
-      return { success: false, message: errorMessage };
-    } finally {
-      clearTimeout(safetyTimeout);
-      if (isMountedRef.current) {
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            setUpdateLoading(false);
-          }
-        }, 100);
-      }
-    }
-  }, [silentRefresh]);
-
-  // Initial fetch for feedback list
   useEffect(() => {
-    if (!initialFetchDone.current && !feedbackData) {
-      initialFetchDone.current = true;
-      fetchFeedback({ limit: 10 });
-    }
-  }, [feedbackData, fetchFeedback]);
-
-  // Cleanup on unmount
-  useEffect(() => {
+    console.log('🟢 [useAdminFeedback] Hook mounted');
     isMountedRef.current = true;
     return () => {
+      console.log('🔴 [useAdminFeedback] Hook unmounted');
       isMountedRef.current = false;
     };
   }, []);
 
+  // ===== FETCH FEEDBACK =====
+  const fetchFeedback = useCallback(async (filters?: FeedbackFilters) => {
+    const fetchId = ++fetchCountRef.current;
+    console.log(`📤 [useAdminFeedback:${fetchId}] fetchFeedback called with filters:`, filters);
+    
+    // Prevent concurrent fetches
+    if (fetchInProgressRef.current) {
+      console.log(`⏭️ [useAdminFeedback:${fetchId}] Skipping - fetch already in progress`);
+      return { success: false, message: 'Fetch already in progress' };
+    }
+    
+    setLoading(true);
+    setError(null);
+    fetchInProgressRef.current = true;
+    
+    try {
+      const result = await AdminFeedbackService.getFeedback(filters);
+      console.log(`📦 [useAdminFeedback:${fetchId}] getFeedback response:`, {
+        success: result.success,
+        feedbackCount: result.data?.feedback?.length,
+        pagination: result.data?.pagination,
+        message: result.message
+      });
+      
+      if (result.success && result.data && isMountedRef.current) {
+        setFeedback(result.data.feedback || []);
+        setPagination({
+          page: result.data.pagination.page,
+          limit: result.data.pagination.limit,
+          total: result.data.pagination.total,
+          pages: result.data.pagination.pages
+        });
+        console.log(`✅ [useAdminFeedback:${fetchId}] Feedback updated:`, {
+          count: result.data.feedback?.length,
+          total: result.data.pagination.total
+        });
+        return { success: true, data: result.data };
+      } else if (isMountedRef.current) {
+        console.error(`❌ [useAdminFeedback:${fetchId}] Failed to fetch feedback:`, result.message);
+        setError(result.message || 'Failed to load feedback');
+        return { success: false, message: result.message };
+      }
+    } catch (err) {
+      if (!isMountedRef.current) return { success: false, message: 'Component unmounted' };
+      
+      const errorMessage = err instanceof Error ? err.message : 'Network error';
+      console.error(`❌ [useAdminFeedback:${fetchId}] Exception:`, errorMessage, err);
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+        fetchInProgressRef.current = false;
+        console.log(`🏁 [useAdminFeedback:${fetchId}] fetchFeedback completed`);
+      }
+    }
+  }, []);
+
+  // ===== FETCH STATISTICS =====
+  const fetchStats = useCallback(async () => {
+    console.log('📊 [useAdminFeedback] fetchStats called');
+    
+    if (statsFetchedRef.current) {
+      console.log('⏭️ [useAdminFeedback] fetchStats skipped - already fetched once');
+      return { success: true, data: stats };
+    }
+    
+    try {
+      const result = await AdminFeedbackService.getFeedbackStats();
+      console.log('📦 [useAdminFeedback] getFeedbackStats response:', {
+        success: result.success,
+        hasStats: !!result.data,
+        message: result.message
+      });
+      
+      if (result.success && result.data && isMountedRef.current) {
+        setStats(result.data);
+        statsFetchedRef.current = true;
+        console.log('✅ [useAdminFeedback] Statistics updated:', result.data);
+      } else if (isMountedRef.current) {
+        console.error('❌ [useAdminFeedback] Failed to fetch stats:', result.message);
+      }
+      return result;
+    } catch (err) {
+      console.error('❌ [useAdminFeedback] Exception in fetchStats:', err);
+      return { success: false, message: 'Failed to fetch stats' };
+    }
+  }, [stats]);
+
+  // ===== GET FEEDBACK DETAILS =====
+  const getFeedbackDetails = useCallback(async (feedbackId: string) => {
+    console.log('🔎 [useAdminFeedback] getFeedbackDetails called for:', feedbackId);
+    
+    try {
+      const result = await AdminFeedbackService.getFeedbackById(feedbackId);
+      console.log('📦 [useAdminFeedback] getFeedbackDetails response:', {
+        success: result.success,
+        hasData: !!result.data,
+        message: result.message
+      });
+      return result;
+    } catch (err) {
+      console.error('❌ [useAdminFeedback] Exception in getFeedbackDetails:', err);
+      return { success: false, message: 'Failed to fetch feedback details' };
+    }
+  }, []);
+
+  // ===== UPDATE STATUS =====
+  const updateStatus = useCallback(async (feedbackId: string, status: string) => {
+    console.log(`🎬 [useAdminFeedback] updateStatus called:`, { feedbackId, status });
+    setActionLoading(true);
+    
+    try {
+      const result = await AdminFeedbackService.updateFeedbackStatus(feedbackId, status);
+      console.log(`📦 [useAdminFeedback] updateStatus response:`, {
+        success: result.success,
+        message: result.message
+      });
+      
+      if (result.success && isMountedRef.current) {
+        console.log(`✅ [useAdminFeedback] Status updated successfully`);
+        // Refresh stats after update
+        statsFetchedRef.current = false;
+        await fetchStats();
+      }
+      return result;
+    } catch (err) {
+      console.error(`❌ [useAdminFeedback] Exception in updateStatus:`, err);
+      return { success: false, message: 'Failed to update status' };
+    } finally {
+      if (isMountedRef.current) {
+        setActionLoading(false);
+        console.log(`🏁 [useAdminFeedback] actionLoading set to false`);
+      }
+    }
+  }, [fetchStats]);
+
+  // ===== DELETE FEEDBACK =====
+  const deleteFeedback = useCallback(async (feedbackId: string) => {
+    console.log(`🗑️ [useAdminFeedback] deleteFeedback called:`, feedbackId);
+    setActionLoading(true);
+    
+    try {
+      const result = await AdminFeedbackService.deleteFeedback(feedbackId);
+      console.log(`📦 [useAdminFeedback] deleteFeedback response:`, {
+        success: result.success,
+        message: result.message
+      });
+      
+      if (result.success && isMountedRef.current) {
+        console.log(`✅ [useAdminFeedback] Delete successful`);
+        // Refresh stats after delete
+        statsFetchedRef.current = false;
+        await fetchStats();
+      }
+      return result;
+    } catch (err) {
+      console.error(`❌ [useAdminFeedback] Exception in deleteFeedback:`, err);
+      return { success: false, message: 'Failed to delete feedback' };
+    } finally {
+      if (isMountedRef.current) {
+        setActionLoading(false);
+        console.log(`🏁 [useAdminFeedback] actionLoading set to false`);
+      }
+    }
+  }, [fetchStats]);
+
+  // ===== REFRESH =====
+  const refreshFeedback = useCallback(async (filters?: FeedbackFilters) => {
+    console.log('🔄 [useAdminFeedback] Manual refresh triggered');
+    statsFetchedRef.current = false;
+    await Promise.all([
+      fetchFeedback(filters),
+      fetchStats()
+    ]);
+  }, [fetchFeedback, fetchStats]);
+
+  console.log('📊 [useAdminFeedback] Current state:', {
+    feedbackCount: feedback.length,
+    loading,
+    hasError: !!error,
+    hasStats: !!stats,
+    pagination,
+    actionLoading
+  });
+
   return {
-    feedback: feedbackData?.feedback || [],
+    feedback,
     loading,
     error,
-    stats: stats || null,
+    stats,
     pagination,
+    actionLoading,
     fetchFeedback,
     fetchStats,
     getFeedbackDetails,
     updateStatus,
     deleteFeedback,
-    refreshFeedback: silentRefresh,
-    refreshStats: refreshStatsCache
+    refreshFeedback,
   };
 }

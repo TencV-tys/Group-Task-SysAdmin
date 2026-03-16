@@ -14,7 +14,7 @@ interface FeedbackModalProps {
 const FeedbackModal: React.FC<FeedbackModalProps> = ({
   isOpen,
   onClose,
-  feedback,
+  feedback, 
   loading,
   onUpdateStatus,
   nextStatusOptions = []

@@ -1,3 +1,4 @@
+// services/admin.feedback.service.ts - COMPLETE WITH PROPER TYPES
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export interface FeedbackUser {
@@ -12,7 +13,7 @@ export interface Feedback {
   type: string;
   message: string;
   status: string;
-  category?: string | null;
+  category?: string | null; 
   createdAt: string;
   updatedAt: string;
   user: FeedbackUser;
@@ -57,18 +58,11 @@ export interface FeedbackResponse {
     };
   };
 }
-export interface FeedbackListResponse {
+
+export interface FeedbackStatsResponse {
   success: boolean;
   message: string;
-  data?: {
-    feedback: Feedback[];
-    pagination: {
-      page: number;
-      limit: number;
-      total: number;
-      pages: number;
-    };
-  };
+  data?: FeedbackStats;
 }
 
 export interface FeedbackDetailsResponse {
@@ -77,10 +71,15 @@ export interface FeedbackDetailsResponse {
   data?: FeedbackDetails;
 }
 
-export interface FeedbackStatsResponse {
+export interface UpdateStatusResponse {
   success: boolean;
   message: string;
-  data?: FeedbackStats;
+  data?: FeedbackDetails;
+}
+
+export interface DeleteResponse {
+  success: boolean;
+  message: string;
 }
 
 class AdminFeedbackServiceClass {
@@ -119,7 +118,11 @@ class AdminFeedbackServiceClass {
       const result = await response.json();
       console.log('📦 Feedback response:', result);
       
-      return result;
+      return {
+        success: result.success || false,
+        message: result.message || 'Unknown response',
+        data: result.data
+      };
 
     } catch (error) {
       console.error('❌ Error fetching feedback:', error);
@@ -142,7 +145,11 @@ class AdminFeedbackServiceClass {
       const result = await response.json();
       console.log('📦 Feedback stats:', result);
       
-      return result;
+      return {
+        success: result.success || false,
+        message: result.message || 'Unknown response',
+        data: result.data
+      };
 
     } catch (error) {
       console.error('❌ Error fetching feedback stats:', error);
@@ -167,7 +174,11 @@ class AdminFeedbackServiceClass {
       const result = await response.json();
       console.log('📦 Feedback details:', result);
       
-      return result;
+      return {
+        success: result.success || false,
+        message: result.message || 'Unknown response',
+        data: result.data
+      };
 
     } catch (error) {
       console.error('❌ Error fetching feedback details:', error);
@@ -182,31 +193,35 @@ class AdminFeedbackServiceClass {
   static async updateFeedbackStatus(
     feedbackId: string, 
     status: string
-  ): Promise<FeedbackDetailsResponse> {
+  ): Promise<UpdateStatusResponse> {
     try {
       const response = await fetch(`${API_URL}/api/admin/feedback/${feedbackId}/status`, {
         method: 'PATCH',
         credentials: 'include',
         headers: await this.getHeaders(),
-        body: JSON.stringify({ status }) // Removed adminNotes
+        body: JSON.stringify({ status })
       });
 
       const result = await response.json();
       console.log('📦 Update status response:', result);
       
-      return result;
+      return {
+        success: result.success || false,
+        message: result.message || 'Unknown response',
+        data: result.data
+      };
 
     } catch (error) {
       console.error('❌ Error updating feedback status:', error);
-      return {
-        success: false,
-        message: 'Failed to update feedback status'
+      return { 
+        success: false, 
+        message: 'Failed to update feedback status' 
       };
     }
   }
 
   // ========== DELETE FEEDBACK ==========
-  static async deleteFeedback(feedbackId: string): Promise<{ success: boolean; message: string }> {
+  static async deleteFeedback(feedbackId: string): Promise<DeleteResponse> {
     try {
       const response = await fetch(`${API_URL}/api/admin/feedback/${feedbackId}`, {
         method: 'DELETE',
@@ -217,7 +232,10 @@ class AdminFeedbackServiceClass {
       const result = await response.json();
       console.log('📦 Delete response:', result);
       
-      return result;
+      return {
+        success: result.success || false,
+        message: result.message || 'Unknown response'
+      };
 
     } catch (error) {
       console.error('❌ Error deleting feedback:', error);

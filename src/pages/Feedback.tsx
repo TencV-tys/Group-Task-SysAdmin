@@ -1,210 +1,201 @@
-// pages/Feedback.tsx - WITH CLICKABLE STATS CARDS
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+// pages/Feedback.tsx - Simplified like AdminGroups
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAdminFeedback } from '../hooks/useAdminFeedback';
 import FeedbackModal from '../components/FeedbackModal';
 import LoadingScreen from '../components/LoadingScreen';
 import ErrorDisplay from '../components/ErrorDisplay';
-import type { FeedbackDetails } from '../services/admin.feedback.service';
+import type { FeedbackDetails, FeedbackFilters } from '../services/admin.feedback.service';
 import './styles/Feedback.css';
 
-const Feedback = () => {
+interface LocalFeedbackFilters {
+  page: number;
+  limit: number;
+  status?: string;
+  search?: string;
+}
+
+const Feedback: React.FC = () => {
+  console.log('🏁 [Feedback] Component rendering');
+  
   const {
     feedback,
     loading,
-    error,  
-    stats, 
+    error,
+    stats,
     pagination,
+    actionLoading,
     fetchFeedback,
     fetchStats,
     getFeedbackDetails,
     updateStatus,
-    refreshFeedback
+    
   } = useAdminFeedback();
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [filters, setFilters] = useState<LocalFeedbackFilters>({
+    page: 1,
+    limit: 10,
+  });
+
+  const [searchInput, setSearchInput] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
-  const [debouncedStatus, setDebouncedStatus] = useState<string>('');
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Modal states
   const [selectedFeedback, setSelectedFeedback] = useState<FeedbackDetails | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
-  const [initialLoad, setInitialLoad] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
-  
-  // Refs
-  const isMounted = useRef(true);
-  const fetchInProgress = useRef(false);
-  const searchTimeoutRef = useRef<number|undefined>(undefined);
-  const statusTimeoutRef = useRef<number|undefined>(undefined);
-  const initialFetchDone = useRef(false);
-  
-  // Fetch stats once on mount
-  useEffect(() => { 
-    fetchStats();
-    return () => {
-      isMounted.current = false;
+
+  // Track initial loads
+  const initialLoadDoneRef = useRef(false);
+  const statsLoadedRef = useRef(false);
+  const fetchInProgressRef = useRef(false);
+
+  // ===== Helper to build API filters =====
+  const buildApiFilters = useCallback((customFilters?: Partial<LocalFeedbackFilters>): FeedbackFilters => {
+    const currentFilters = customFilters || filters;
+    const apiFilters: FeedbackFilters = { 
+      page: currentFilters.page,
+      limit: currentFilters.limit,
     };
+    
+    if (currentFilters.status) {
+      apiFilters.status = currentFilters.status;
+    }
+    
+    if (currentFilters.search) {
+      apiFilters.search = currentFilters.search;
+    }
+    
+    return apiFilters;
+  }, [filters]);
+
+  // ===== Load feedback with explicit filters =====
+  const loadFeedback = useCallback(async (filterParams?: Partial<LocalFeedbackFilters>) => {
+    // Prevent concurrent fetches
+    if (fetchInProgressRef.current) {
+      console.log('⏭️ [Feedback] Skipping fetch - already in progress');
+      return;
+    }
+    
+    fetchInProgressRef.current = true;
+    
+    try {
+      const apiFilters = buildApiFilters(filterParams);
+      console.log('🚀 [Feedback] Loading feedback with filters:', apiFilters);
+      await fetchFeedback(apiFilters);
+    } finally {
+      fetchInProgressRef.current = false;
+    }
+  }, [fetchFeedback, buildApiFilters]);
+
+  // ===== Initial load =====
+  useEffect(() => {
+    if (!initialLoadDoneRef.current) {
+      initialLoadDoneRef.current = true;
+      console.log('📥 [Feedback] Initial feedback load');
+      loadFeedback();
+    }
+  }, [loadFeedback]);
+
+  // ===== Load stats once =====
+  useEffect(() => {
+    if (!statsLoadedRef.current) {
+      statsLoadedRef.current = true;
+      console.log('📥 [Feedback] Initial stats fetch');
+      fetchStats();
+    }
   }, [fetchStats]);
 
-  // Debounce search
-  useEffect(() => {
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-
-    searchTimeoutRef.current = setTimeout(() => {
-      setDebouncedSearch(searchTerm);
-      setCurrentPage(1);
-    }, 500);
-
-    return () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
-    };
-  }, [searchTerm]);
-
-  // Debounce status filter
-  useEffect(() => {
-    if (statusTimeoutRef.current) {
-      clearTimeout(statusTimeoutRef.current);
-    }
-
-    statusTimeoutRef.current = setTimeout(() => {
-      setDebouncedStatus(statusFilter);
-      setCurrentPage(1);
-    }, 500);
-
-    return () => {
-      if (statusTimeoutRef.current) {
-        clearTimeout(statusTimeoutRef.current);
-      }
-    };
-  }, [statusFilter]);
-
-  useEffect(() => {
-    const loadFeedback = async () => {
-      if (fetchInProgress.current || initialFetchDone.current) return;
-      
-      fetchInProgress.current = true;
-      initialFetchDone.current = true;
-      
-      try {
-        await fetchFeedback({ 
-          page: currentPage, 
-          limit: 10,
-          status: debouncedStatus || undefined,
-          search: debouncedSearch || undefined
-        });
-      } finally {
-        fetchInProgress.current = false;
-        setInitialLoad(false);
-      }
-    };
-    
-    loadFeedback();
-  }, [currentPage, debouncedStatus, debouncedSearch, fetchFeedback]);
-
-  // ===== NEW: Handle stat card click =====
-  const handleStatClick = (status: string) => {
-    setStatusFilter(status);
-    setDebouncedStatus(status);
-    setCurrentPage(1);
+  // ===== Handlers =====
+  const handleSearch = () => {
+    console.log('🔍 [Feedback] Search triggered:', searchInput);
+    const newFilters = { ...filters, page: 1, search: searchInput };
+    setFilters(newFilters);
+    loadFeedback(newFilters);
   };
 
-  // Safety effect to prevent infinite loading
-  useEffect(() => {
-    let timeoutId: number;
-    
-    if (loading && !fetchInProgress.current && !initialLoad) {
-      timeoutId = setTimeout(() => {
-        console.log('⚠️ Feedback loading stuck - forcing silent refresh');
-        refreshFeedback();
-      }, 10000);
-    }
-    
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [loading, refreshFeedback, initialLoad]);
-
-  const handleSearch = useCallback(() => {
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-    setDebouncedSearch(searchTerm);
-    setCurrentPage(1);
-  }, [searchTerm]);
-
-  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
+  const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleSearch();
     }
-  }, [handleSearch]);
+  };
 
-  const handlePageChange = useCallback((newPage: number) => {
-    if (newPage === currentPage || fetchInProgress.current || loading) return;
-    setCurrentPage(newPage);
-  }, [currentPage, loading]);
+
+  const handlePageChange = (newPage: number) => {
+    console.log('📄 [Feedback] Page changed:', newPage);
+    const newFilters = { ...filters, page: newPage };
+    setFilters(newFilters);
+    loadFeedback(newFilters);
+  };
+
+  const handleRefresh = () => {
+    console.log('🔄 [Feedback] Manual refresh');
+    setRefreshing(true);
+    Promise.all([
+      loadFeedback(),
+      fetchStats()
+    ]).finally(() => {
+      setRefreshing(false);
+    });
+  };
+
+  const handleStatClick = (status: string) => {
+    console.log('📊 [Feedback] Stat card clicked:', status);
+    const newFilters = { ...filters, page: 1, status };
+    setStatusFilter(status);
+    setFilters(newFilters);
+    loadFeedback(newFilters);
+  };
+
+  const clearFilters = () => {
+    console.log('🧹 [Feedback] Clearing filters');
+    setSearchInput('');
+    setStatusFilter('');
+    const newFilters = { page: 1, limit: 10 };
+    setFilters(newFilters);
+    loadFeedback(newFilters);
+  };
 
   const handleViewFeedback = async (feedbackId: string) => {
     if (selectedRowId === feedbackId) return;
     
+    console.log('👁️ [Feedback] Viewing:', feedbackId);
     setSelectedRowId(feedbackId);
     setModalLoading(true);
-    setShowModal(true);
-
+    
     try {
       const result = await getFeedbackDetails(feedbackId);
       
-      if (result.success && result.data && isMounted.current) {
+      if (result.success && result.data) {
         setSelectedFeedback(result.data);
+        setShowModal(true);
       } else {
-        if (isMounted.current) {
-          setShowModal(false);
-          setSelectedFeedback(null);
-        }
+        alert('Failed to load feedback details');
       }
-    } catch (error) {
-      console.error('Error loading feedback:', error);
-      if (isMounted.current) {
-        setShowModal(false);
-        setSelectedFeedback(null);
-      }
+    } catch (err) {
+      console.error('❌ [Feedback] Error:', err);
     } finally {
-      if (isMounted.current) {
-        setModalLoading(false);
-        setSelectedRowId(null);
-      }
+      setModalLoading(false);
+      setSelectedRowId(null);
     }
-  };
-
-  const handleRowClick = (feedbackId: string) => {
-    handleViewFeedback(feedbackId);
-  };
-
-  const closeModal = () => {
-    setShowModal(false);
-    setTimeout(() => {
-      if (isMounted.current) {
-        setSelectedFeedback(null);
-      }
-    }, 300);
   };
 
   const handleUpdateStatus = async (status: string) => {
     if (!selectedFeedback) return;
     
     const result = await updateStatus(selectedFeedback.id, status);
-    if (result.success && isMounted.current) {
-      if (result.data) {
-        setSelectedFeedback(result.data);
-      }
-      closeModal();
+    if (result.success) {
+      setShowModal(false);
+      setSelectedFeedback(null);
+      await loadFeedback();
+      await fetchStats();
     }
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    setTimeout(() => setSelectedFeedback(null), 300);
   };
 
   const formatDate = (dateString: string) => {
@@ -213,28 +204,6 @@ const Feedback = () => {
       month: 'short',
       day: 'numeric'
     });
-  };
-
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'BUG': return '🐛';
-      case 'FEATURE_REQUEST': return '✨';
-      case 'GENERAL': return '💬';
-      case 'SUGGESTION': return '💡';
-      case 'COMPLAINT': return '⚠️';
-      case 'QUESTION': return '❓';
-      default: return '📝';
-    }
-  };
-
-  const getTypeClass = (type: string) => {
-    switch (type) {
-      case 'BUG': return 'bug';
-      case 'FEATURE_REQUEST': return 'feature';
-      case 'SUGGESTION': return 'suggestion';
-      case 'QUESTION': return 'question';
-      default: return 'general';
-    }
   };
 
   const getStatusClass = (status: string) => {
@@ -249,29 +218,14 @@ const Feedback = () => {
 
   const getNextStatusOptions = (currentStatus: string): string[] => {
     switch (currentStatus) {
-      case 'OPEN':
-        return ['IN_PROGRESS', 'RESOLVED', 'CLOSED'];
-      case 'IN_PROGRESS':
-        return ['RESOLVED', 'CLOSED'];
-      case 'RESOLVED':
-        return ['CLOSED'];
-      case 'CLOSED':
-        return [];
-      default:
-        return [];
+      case 'OPEN': return ['IN_PROGRESS', 'RESOLVED', 'CLOSED'];
+      case 'IN_PROGRESS': return ['RESOLVED', 'CLOSED'];
+      case 'RESOLVED': return ['CLOSED'];
+      default: return [];
     }
   };
 
-  const clearFilters = useCallback(() => {
-    setSearchTerm('');
-    setDebouncedSearch('');
-    setStatusFilter('');
-    setDebouncedStatus('');
-    setCurrentPage(1);
-  }, []);
-
-  // Show loading screen only on initial load
-  if (initialLoad && loading && feedback.length === 0) {
+  if (loading && feedback.length === 0) {
     return <LoadingScreen message="Loading feedback..." fullScreen />;
   }
 
@@ -284,67 +238,71 @@ const Feedback = () => {
             <h1>Feedback Management</h1>
             <p>View and manage user feedback</p>
           </div>
+          <button 
+            className="refresh-btn" 
+            onClick={handleRefresh} 
+            disabled={refreshing}
+          >
+            <svg className={refreshing ? 'fa-spin' : ''} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M23 4v6h-6M1 20v-6h6" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
+            Refresh
+          </button>
         </div>
 
-        {/* Stats Cards - NOW CLICKABLE */}
+        {/* Stats Cards */}
         {stats && (
           <div className="feedback-stats">
             <div 
-              className={`feedback-stat-card open ${debouncedStatus === 'OPEN' ? 'active' : ''}`}
-              onClick={() => handleStatClick('OPEN')}
-              style={{ cursor: 'pointer' }}
-            >
-              <span className="feedback-stat-value">{stats.open}</span>
-              <span className="feedback-stat-label">Open</span>
-              {debouncedStatus === 'OPEN' && <div className="stat-active-indicator" />}
-            </div>
-            
-            <div 
-              className={`feedback-stat-card progress ${debouncedStatus === 'IN_PROGRESS' ? 'active' : ''}`}
-              onClick={() => handleStatClick('IN_PROGRESS')}
-              style={{ cursor: 'pointer' }}
-            >
-              <span className="feedback-stat-value">{stats.inProgress}</span>
-              <span className="feedback-stat-label">In Progress</span>
-              {debouncedStatus === 'IN_PROGRESS' && <div className="stat-active-indicator" />}
-            </div>
-            
-            <div 
-              className={`feedback-stat-card resolved ${debouncedStatus === 'RESOLVED' ? 'active' : ''}`}
-              onClick={() => handleStatClick('RESOLVED')}
-              style={{ cursor: 'pointer' }}
-            >
-              <span className="feedback-stat-value">{stats.resolved}</span>
-              <span className="feedback-stat-label">Resolved</span>
-              {debouncedStatus === 'RESOLVED' && <div className="stat-active-indicator" />}
-            </div>
-            
-            <div 
-              className={`feedback-stat-card closed ${debouncedStatus === 'CLOSED' ? 'active' : ''}`}
-              onClick={() => handleStatClick('CLOSED')}
-              style={{ cursor: 'pointer' }}
-            >
-              <span className="feedback-stat-value">{stats.closed}</span>
-              <span className="feedback-stat-label">Closed</span>
-              {debouncedStatus === 'CLOSED' && <div className="stat-active-indicator" />}
-            </div>
-            
-            <div 
-              className={`feedback-stat-card total ${debouncedStatus === '' ? 'active' : ''}`}
+              className={`feedback-stat-card total ${statusFilter === '' ? 'active' : ''}`}
               onClick={() => handleStatClick('')}
               style={{ cursor: 'pointer' }}
             >
               <span className="feedback-stat-value">{stats.total}</span>
               <span className="feedback-stat-label">Total</span>
-              {debouncedStatus === '' && <div className="stat-active-indicator" />}
+              {statusFilter === '' && <div className="stat-active-indicator" />}
             </div>
-          </div>
-        )}
-
-        {/* Loading overlay for subsequent loads */}
-        {loading && !initialLoad && (
-          <div className="feedback-loading-overlay">
-            <div className="feedback-loading-spinner"></div>
+            
+            <div 
+              className={`feedback-stat-card open ${statusFilter === 'OPEN' ? 'active' : ''}`}
+              onClick={() => handleStatClick('OPEN')}
+              style={{ cursor: 'pointer' }}
+            >
+              <span className="feedback-stat-value">{stats.open}</span>
+              <span className="feedback-stat-label">Open</span>
+              {statusFilter === 'OPEN' && <div className="stat-active-indicator" />}
+            </div>
+            
+            <div 
+              className={`feedback-stat-card progress ${statusFilter === 'IN_PROGRESS' ? 'active' : ''}`}
+              onClick={() => handleStatClick('IN_PROGRESS')}
+              style={{ cursor: 'pointer' }}
+            >
+              <span className="feedback-stat-value">{stats.inProgress}</span>
+              <span className="feedback-stat-label">In Progress</span>
+              {statusFilter === 'IN_PROGRESS' && <div className="stat-active-indicator" />}
+            </div>
+            
+            <div 
+              className={`feedback-stat-card resolved ${statusFilter === 'RESOLVED' ? 'active' : ''}`}
+              onClick={() => handleStatClick('RESOLVED')}
+              style={{ cursor: 'pointer' }}
+            >
+              <span className="feedback-stat-value">{stats.resolved}</span>
+              <span className="feedback-stat-label">Resolved</span>
+              {statusFilter === 'RESOLVED' && <div className="stat-active-indicator" />}
+            </div>
+            
+            <div 
+              className={`feedback-stat-card closed ${statusFilter === 'CLOSED' ? 'active' : ''}`}
+              onClick={() => handleStatClick('CLOSED')}
+              style={{ cursor: 'pointer' }}
+            >
+              <span className="feedback-stat-value">{stats.closed}</span>
+              <span className="feedback-stat-label">Closed</span>
+              {statusFilter === 'CLOSED' && <div className="stat-active-indicator" />}
+            </div>
           </div>
         )}
 
@@ -359,73 +317,27 @@ const Feedback = () => {
               <input
                 type="text"
                 placeholder="Search feedback..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 onKeyPress={handleKeyPress}
                 className="feedback-search-input"
-                disabled={loading || fetchInProgress.current}
               />
               <button 
                 onClick={handleSearch} 
                 className="feedback-search-btn"
-                disabled={loading || fetchInProgress.current || searchTerm === debouncedSearch}
+                disabled={loading}
               >
-                {loading ? 'Searching...' : 'Search'}
+                Search
               </button>
             </div>
-          </div>
-
-          <div className="feedback-filter-group">
-            <button
-              className={`feedback-filter-btn ${!statusFilter ? 'active' : ''}`}
-              onClick={() => setStatusFilter('')}
-              disabled={loading || fetchInProgress.current}
-            >
-              All
-            </button>
-            <button
-              className={`feedback-filter-btn ${statusFilter === 'OPEN' ? 'active' : ''}`}
-              onClick={() => setStatusFilter('OPEN')}
-              disabled={loading || fetchInProgress.current}
-            >
-              Open {stats?.open ? `(${stats.open})` : ''}
-            </button>
-            <button
-              className={`feedback-filter-btn ${statusFilter === 'IN_PROGRESS' ? 'active' : ''}`}
-              onClick={() => setStatusFilter('IN_PROGRESS')}
-              disabled={loading || fetchInProgress.current}
-            >
-              In Progress {stats?.inProgress ? `(${stats.inProgress})` : ''}
-            </button>
-            <button
-              className={`feedback-filter-btn ${statusFilter === 'RESOLVED' ? 'active' : ''}`}
-              onClick={() => setStatusFilter('RESOLVED')}
-              disabled={loading || fetchInProgress.current}
-            >
-              Resolved {stats?.resolved ? `(${stats.resolved})` : ''}
-            </button>
-            <button
-              className={`feedback-filter-btn ${statusFilter === 'CLOSED' ? 'active' : ''}`}
-              onClick={() => setStatusFilter('CLOSED')}
-              disabled={loading || fetchInProgress.current}
-            >
-              Closed {stats?.closed ? `(${stats.closed})` : ''}
-            </button>
           </div>
         </div>
 
         {/* Error Display */}
-        {error && <ErrorDisplay message={error} onRetry={() => {
-          fetchFeedback({ 
-            page: currentPage, 
-            limit: 10,
-            status: debouncedStatus || undefined,
-            search: debouncedSearch || undefined
-          });
-        }} />}
+        {error && <ErrorDisplay message={error} onRetry={handleRefresh} />}
 
         {/* Feedback Table or Empty State */}
-        {feedback.length === 0 && !loading ? (
+        {feedback.length === 0 ? (
           <div className="feedback-empty">
             <div className="feedback-empty-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -434,11 +346,11 @@ const Feedback = () => {
             </div>
             <h3 className="feedback-empty-title">No feedback found</h3>
             <p className="feedback-empty-message">
-              {debouncedSearch || debouncedStatus 
-                ? "No feedback matches your current filters. Try adjusting your search."
+              {searchInput || statusFilter 
+                ? "No feedback matches your current filters."
                 : "There are no feedback submissions yet."}
             </p>
-            {(debouncedSearch || debouncedStatus) && (
+            {(searchInput || statusFilter) && (
               <button className="feedback-empty-btn" onClick={clearFilters}>
                 Clear Filters
               </button>
@@ -469,9 +381,8 @@ const Feedback = () => {
                   {feedback.map((item) => (
                     <tr 
                       key={item.id} 
-                      onClick={() => handleRowClick(item.id)}
-                      className={`feedback-row ${selectedRowId === item.id ? 'selected' : ''} ${loading || fetchInProgress.current ? 'disabled' : ''}`}
-                      style={{ cursor: loading || fetchInProgress.current ? 'wait' : 'pointer' }}
+                      onClick={() => handleViewFeedback(item.id)}
+                      className={`feedback-row ${selectedRowId === item.id ? 'selected' : ''}`}
                     >
                       <td>
                         <div className="feedback-user-info">
@@ -489,9 +400,8 @@ const Feedback = () => {
                         </div>
                       </td>
                       <td>
-                        <span className={`feedback-type-badge ${getTypeClass(item.type)}`}>
-                          <span>{getTypeIcon(item.type)}</span>
-                          {item.type.replace('_', ' ')}
+                        <span className={`feedback-type-badge ${item.type?.toLowerCase()}`}>
+                          {item.type?.replace('_', ' ') || 'General'}
                         </span>
                       </td>
                       <td>
@@ -515,7 +425,7 @@ const Feedback = () => {
                             e.stopPropagation();
                             handleViewFeedback(item.id);
                           }}
-                          disabled={modalLoading || loading || fetchInProgress.current}
+                          disabled={loading || actionLoading}
                         >
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <circle cx="12" cy="12" r="3" />
@@ -535,21 +445,18 @@ const Feedback = () => {
               <div className="feedback-pagination">
                 <button
                   className="feedback-pagination-btn"
-                  disabled={currentPage === 1 || loading || fetchInProgress.current}
-                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={filters.page === 1 || loading}
+                  onClick={() => handlePageChange(filters.page - 1)}
                 >
                   Previous
                 </button>
-                <div className="feedback-pagination-info">
-                  <span>Page {currentPage} of {pagination.pages}</span>
-                  <span className="feedback-pagination-total">
-                    (Total: {pagination.total} {pagination.total === 1 ? 'item' : 'items'})
-                  </span>
-                </div>
+                <span className="feedback-pagination-info">
+                  Page {filters.page} of {pagination.pages}
+                </span>
                 <button
                   className="feedback-pagination-btn"
-                  disabled={currentPage === pagination.pages || loading || fetchInProgress.current}
-                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={filters.page === pagination.pages || loading}
+                  onClick={() => handlePageChange(filters.page + 1)}
                 >
                   Next
                 </button>
@@ -560,18 +467,18 @@ const Feedback = () => {
       </div>
 
       {/* Feedback Modal */}
-      {showModal && (
+      {showModal && selectedFeedback && (
         <FeedbackModal
           isOpen={showModal}
           onClose={closeModal}
           feedback={selectedFeedback}
           loading={modalLoading}
           onUpdateStatus={handleUpdateStatus}
-          nextStatusOptions={selectedFeedback ? getNextStatusOptions(selectedFeedback.status) : []}
+          nextStatusOptions={getNextStatusOptions(selectedFeedback.status)}
         />
       )}
     </div>
   );
 };
- 
+
 export default Feedback;
