@@ -150,7 +150,7 @@ class AdminFeedbackServiceClass {
         message: result.message || 'Unknown response',
         data: result.data
       };
-
+  
     } catch (error) {
       console.error('❌ Error fetching feedback stats:', error);
       return {
@@ -245,6 +245,42 @@ class AdminFeedbackServiceClass {
       };
     }
   }
+
+// ========== GET FILTERED FEEDBACK STATS ==========
+static async getFilteredFeedbackStats(filters?: { status?: string, type?: string, search?: string }): Promise<FeedbackStatsResponse> {
+  try {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.type) params.append('type', filters.type);
+    if (filters?.search) params.append('search', filters.search);
+
+    const url = `${API_URL}/api/admin/feedback/stats/filtered${params.toString() ? `?${params}` : ''}`;
+    console.log('📥 Fetching filtered stats:', url);
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      headers: await this.getHeaders()
+    });
+
+    const result = await response.json();
+    console.log('📦 Filtered stats response:', result);
+    
+    return {
+      success: result.success || false,
+      message: result.message || 'Unknown response',
+      data: result.data
+    };
+
+  } catch (error) {
+    console.error('❌ Error fetching filtered stats:', error);
+    return {
+      success: false,
+      message: 'Failed to fetch filtered stats'
+    };
+  }
+}
+
 }
 
 export const AdminFeedbackService = AdminFeedbackServiceClass;

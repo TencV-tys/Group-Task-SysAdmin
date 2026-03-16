@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+// components/FeedbackModal.tsx - COMPLETE FIXED
+import React, { useState} from 'react';
 import type { FeedbackDetails } from '../services/admin.feedback.service';
 import './styles/FeedbackModal.css';
 
@@ -22,16 +23,13 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
   const [showStatusForm, setShowStatusForm] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('');
   const [updating, setUpdating] = useState(false);
+  
+   React.useEffect(() => {
+    // This runs once on mount and when feedback.id changes
+    setShowStatusForm(false);
+    setSelectedStatus('');
+  }, [feedback?.id]); // This is fine - the warning is overly cautious
 
-  // Reset form when feedback changes
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowStatusForm(false);
-      setSelectedStatus('');
-    }, 0);
-    
-    return () => clearTimeout(timer);
-  }, [feedback?.id]);
 
   if (!isOpen || !feedback) return null;
 
@@ -86,6 +84,16 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
     status => status !== feedback.status
   );
 
+  const handleAvatarError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    e.currentTarget.style.display = 'none';
+    const parent = e.currentTarget.parentElement;
+    if (parent) {
+      const span = document.createElement('span');
+      span.textContent = feedback.user.fullName.charAt(0).toUpperCase();
+      parent.appendChild(span);
+    }
+  };
+
   if (loading) {
     return (
       <div className="feedback-modal-overlay" onClick={onClose}>
@@ -120,7 +128,11 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
           <div className="feedback-modal-user">
             <div className="feedback-modal-avatar">
               {feedback.user.avatarUrl ? (
-                <img src={feedback.user.avatarUrl} alt={feedback.user.fullName} />
+                <img 
+                  src={feedback.user.avatarUrl} 
+                  alt={feedback.user.fullName}
+                  onError={handleAvatarError}
+                />
               ) : (
                 <span>{feedback.user.fullName.charAt(0).toUpperCase()}</span>
               )}
@@ -168,7 +180,7 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
             </button>
           </div>
 
-          {/* Status Update Form - Only show valid next statuses */}
+          {/* Status Update Form */}
           {showStatusForm && (
             <div className="feedback-modal-form">
               <p className="feedback-modal-form-hint">

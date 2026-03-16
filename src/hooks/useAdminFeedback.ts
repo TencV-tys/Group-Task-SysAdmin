@@ -1,11 +1,13 @@
-// hooks/useAdminFeedback.ts - Simplified without cache
+// hooks/useAdminFeedback.ts - COMPLETE WITH FILTERED STATS
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
 import type { 
   Feedback, 
   FeedbackFilters,  
   FeedbackStats, 
-
+  FeedbackDetailsResponse,
+  UpdateStatusResponse,
+  DeleteResponse
 } from '../services/admin.feedback.service';
 
 export function useAdminFeedback() {
@@ -14,7 +16,8 @@ export function useAdminFeedback() {
   const [feedback, setFeedback] = useState<Feedback[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<FeedbackStats | null>(null);
+  const [globalStats, setGlobalStats] = useState<FeedbackStats | null>(null);
+  const [filteredStats, setFilteredStats] = useState<FeedbackStats | null>(null);
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 10,
@@ -25,7 +28,7 @@ export function useAdminFeedback() {
 
   const isMountedRef = useRef(true);
   const fetchCountRef = useRef(0);
-  const statsFetchedRef = useRef(false);
+  const globalStatsFetchedRef = useRef(false);
   const fetchInProgressRef = useRef(false);
 
   useEffect(() => {
@@ -42,7 +45,6 @@ export function useAdminFeedback() {
     const fetchId = ++fetchCountRef.current;
     console.log(`📤 [useAdminFeedback:${fetchId}] fetchFeedback called with filters:`, filters);
     
-    // Prevent concurrent fetches
     if (fetchInProgressRef.current) {
       console.log(`⏭️ [useAdminFeedback:${fetchId}] Skipping - fetch already in progress`);
       return { success: false, message: 'Fetch already in progress' };
@@ -95,13 +97,13 @@ export function useAdminFeedback() {
     }
   }, []);
 
-  // ===== FETCH STATISTICS =====
-  const fetchStats = useCallback(async () => {
-    console.log('📊 [useAdminFeedback] fetchStats called');
+  // ===== FETCH GLOBAL STATISTICS =====
+  const fetchGlobalStats = useCallback(async (force: boolean = false) => {
+    console.log('📊 [useAdminFeedback] fetchGlobalStats called', force ? '(forced)' : '');
     
-    if (statsFetchedRef.current) {
-      console.log('⏭️ [useAdminFeedback] fetchStats skipped - already fetched once');
-      return { success: true, data: stats };
+    if (!force && globalStatsFetchedRef.current) {
+      console.log('⏭️ [useAdminFeedback] fetchGlobalStats skipped - already fetched once');
+      return { success: true, data: globalStats };
     }
     
     try {
@@ -113,21 +115,70 @@ export function useAdminFeedback() {
       });
       
       if (result.success && result.data && isMountedRef.current) {
-        setStats(result.data);
-        statsFetchedRef.current = true;
-        console.log('✅ [useAdminFeedback] Statistics updated:', result.data);
+        setGlobalStats(result.data);
+        if (!force) {
+          globalStatsFetchedRef.current = true;
+        }
+        console.log('✅ [useAdminFeedback] Global statistics updated:', result.data);
+        return { success: true, data: result.data };
       } else if (isMountedRef.current) {
-        console.error('❌ [useAdminFeedback] Failed to fetch stats:', result.message);
+        console.error('❌ [useAdminFeedback] Failed to fetch global stats:', result.message);
+        return { success: false, message: result.message };
       }
-      return result;
     } catch (err) {
-      console.error('❌ [useAdminFeedback] Exception in fetchStats:', err);
-      return { success: false, message: 'Failed to fetch stats' };
+      console.error('❌ [useAdminFeedback] Exception in fetchGlobalStats:', err);
+      return { success: false, message: 'Failed to fetch global stats' };
     }
-  }, [stats]);
+  }, [globalStats]);
+
+ // ===== FETCH FILTERED STATISTICS =====
+const fetchFilteredStats = useCallback(async (filters?: { status?: string, type?: string, search?: string }) => {
+  console.log('📊 [useAdminFeedback] fetchFilteredStats called with filters:', filters);
+  
+  try {
+    const result = await AdminFeedbackService.getFilteredFeedbackStats(filters);
+    console.log('📦 [useAdminFeedback] getFilteredFeedbackStats response:', {
+      success: result.success,
+      hasStats: !!result.data,
+      message: result.message
+    });
+    
+    if (result.success && result.data && isMountedRef.current) {
+      setFilteredStats(result.data);
+      console.log('✅ [useAdminFeedback] Filtered statistics updated:', result.data);
+      return { success: true, data: result.data };
+    } else if (isMountedRef.current) {
+      // If no data, set to zeros based on current filter
+      setFilteredStats({
+        total: 0,
+        open: 0,
+        inProgress: 0,
+        resolved: 0,
+        closed: 0,
+        byType: {}
+      });
+      console.error('❌ [useAdminFeedback] Failed to fetch filtered stats:', result.message);
+      return { success: false, message: result.message };
+    }
+  } catch (err) {
+    console.error('❌ [useAdminFeedback] Exception in fetchFilteredStats:', err);
+    // Reset to zeros on error
+    if (isMountedRef.current) {
+      setFilteredStats({
+        total: 0,
+        open: 0,
+        inProgress: 0,
+        resolved: 0,
+        closed: 0,
+        byType: {}
+      });
+    }
+    return { success: false, message: 'Failed to fetch filtered stats' };
+  }
+}, []);
 
   // ===== GET FEEDBACK DETAILS =====
-  const getFeedbackDetails = useCallback(async (feedbackId: string) => {
+  const getFeedbackDetails = useCallback(async (feedbackId: string): Promise<FeedbackDetailsResponse> => {
     console.log('🔎 [useAdminFeedback] getFeedbackDetails called for:', feedbackId);
     
     try {
@@ -145,7 +196,7 @@ export function useAdminFeedback() {
   }, []);
 
   // ===== UPDATE STATUS =====
-  const updateStatus = useCallback(async (feedbackId: string, status: string) => {
+  const updateStatus = useCallback(async (feedbackId: string, status: string): Promise<UpdateStatusResponse> => {
     console.log(`🎬 [useAdminFeedback] updateStatus called:`, { feedbackId, status });
     setActionLoading(true);
     
@@ -158,9 +209,8 @@ export function useAdminFeedback() {
       
       if (result.success && isMountedRef.current) {
         console.log(`✅ [useAdminFeedback] Status updated successfully`);
-        // Refresh stats after update
-        statsFetchedRef.current = false;
-        await fetchStats();
+        globalStatsFetchedRef.current = false;
+        await fetchGlobalStats(true);
       }
       return result;
     } catch (err) {
@@ -172,10 +222,10 @@ export function useAdminFeedback() {
         console.log(`🏁 [useAdminFeedback] actionLoading set to false`);
       }
     }
-  }, [fetchStats]);
+  }, [fetchGlobalStats]);
 
   // ===== DELETE FEEDBACK =====
-  const deleteFeedback = useCallback(async (feedbackId: string) => {
+  const deleteFeedback = useCallback(async (feedbackId: string): Promise<DeleteResponse> => {
     console.log(`🗑️ [useAdminFeedback] deleteFeedback called:`, feedbackId);
     setActionLoading(true);
     
@@ -188,9 +238,8 @@ export function useAdminFeedback() {
       
       if (result.success && isMountedRef.current) {
         console.log(`✅ [useAdminFeedback] Delete successful`);
-        // Refresh stats after delete
-        statsFetchedRef.current = false;
-        await fetchStats();
+        globalStatsFetchedRef.current = false;
+        await fetchGlobalStats(true);
       }
       return result;
     } catch (err) {
@@ -202,23 +251,25 @@ export function useAdminFeedback() {
         console.log(`🏁 [useAdminFeedback] actionLoading set to false`);
       }
     }
-  }, [fetchStats]);
+  }, [fetchGlobalStats]);
 
   // ===== REFRESH =====
   const refreshFeedback = useCallback(async (filters?: FeedbackFilters) => {
     console.log('🔄 [useAdminFeedback] Manual refresh triggered');
-    statsFetchedRef.current = false;
+    globalStatsFetchedRef.current = false;
     await Promise.all([
       fetchFeedback(filters),
-      fetchStats()
+      fetchGlobalStats(true),
+      fetchFilteredStats(filters)
     ]);
-  }, [fetchFeedback, fetchStats]);
+  }, [fetchFeedback, fetchGlobalStats, fetchFilteredStats]);
 
   console.log('📊 [useAdminFeedback] Current state:', {
     feedbackCount: feedback.length,
     loading,
     hasError: !!error,
-    hasStats: !!stats,
+    hasGlobalStats: !!globalStats,
+    hasFilteredStats: !!filteredStats,
     pagination,
     actionLoading
   });
@@ -227,11 +278,13 @@ export function useAdminFeedback() {
     feedback,
     loading,
     error,
-    stats,
+    globalStats,
+    filteredStats,
     pagination,
     actionLoading,
     fetchFeedback,
-    fetchStats,
+    fetchGlobalStats,
+    fetchFilteredStats,
     getFeedbackDetails,
     updateStatus,
     deleteFeedback,

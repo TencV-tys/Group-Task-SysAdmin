@@ -1,4 +1,4 @@
-// pages/Feedback.tsx - Simplified like AdminGroups
+// pages/Feedback.tsx - COMPLETE WITH FILTERED STATS
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAdminFeedback } from '../hooks/useAdminFeedback';
 import FeedbackModal from '../components/FeedbackModal';
@@ -21,14 +21,14 @@ const Feedback: React.FC = () => {
     feedback,
     loading,
     error,
-    stats,
+    filteredStats, // Use filteredStats instead of globalStats
     pagination,
     actionLoading,
     fetchFeedback,
-    fetchStats,
+    fetchFilteredStats,
     getFeedbackDetails,
     updateStatus,
-    
+    refreshFeedback,
   } = useAdminFeedback();
 
   const [filters, setFilters] = useState<LocalFeedbackFilters>({
@@ -48,7 +48,6 @@ const Feedback: React.FC = () => {
 
   // Track initial loads
   const initialLoadDoneRef = useRef(false);
-  const statsLoadedRef = useRef(false);
   const fetchInProgressRef = useRef(false);
 
   // ===== Helper to build API filters =====
@@ -72,7 +71,6 @@ const Feedback: React.FC = () => {
 
   // ===== Load feedback with explicit filters =====
   const loadFeedback = useCallback(async (filterParams?: Partial<LocalFeedbackFilters>) => {
-    // Prevent concurrent fetches
     if (fetchInProgressRef.current) {
       console.log('⏭️ [Feedback] Skipping fetch - already in progress');
       return;
@@ -84,10 +82,16 @@ const Feedback: React.FC = () => {
       const apiFilters = buildApiFilters(filterParams);
       console.log('🚀 [Feedback] Loading feedback with filters:', apiFilters);
       await fetchFeedback(apiFilters);
+      
+      // Also fetch filtered stats with the same filters
+      await fetchFilteredStats({
+        status: apiFilters.status,
+        search: apiFilters.search
+      });
     } finally {
       fetchInProgressRef.current = false;
     }
-  }, [fetchFeedback, buildApiFilters]);
+  }, [fetchFeedback, fetchFilteredStats, buildApiFilters]);
 
   // ===== Initial load =====
   useEffect(() => {
@@ -97,15 +101,6 @@ const Feedback: React.FC = () => {
       loadFeedback();
     }
   }, [loadFeedback]);
-
-  // ===== Load stats once =====
-  useEffect(() => {
-    if (!statsLoadedRef.current) {
-      statsLoadedRef.current = true;
-      console.log('📥 [Feedback] Initial stats fetch');
-      fetchStats();
-    }
-  }, [fetchStats]);
 
   // ===== Handlers =====
   const handleSearch = () => {
@@ -121,7 +116,6 @@ const Feedback: React.FC = () => {
     }
   };
 
-
   const handlePageChange = (newPage: number) => {
     console.log('📄 [Feedback] Page changed:', newPage);
     const newFilters = { ...filters, page: newPage };
@@ -132,10 +126,12 @@ const Feedback: React.FC = () => {
   const handleRefresh = () => {
     console.log('🔄 [Feedback] Manual refresh');
     setRefreshing(true);
-    Promise.all([
-      loadFeedback(),
-      fetchStats()
-    ]).finally(() => {
+    refreshFeedback({
+      page: filters.page,
+      limit: filters.limit,
+      status: statusFilter || undefined,
+      search: searchInput || undefined
+    }).finally(() => {
       setRefreshing(false);
     });
   };
@@ -180,18 +176,29 @@ const Feedback: React.FC = () => {
       setSelectedRowId(null);
     }
   };
-
-  const handleUpdateStatus = async (status: string) => {
-    if (!selectedFeedback) return;
+const handleUpdateStatus = async (status: string) => {
+  if (!selectedFeedback) return;
+  
+  const result = await updateStatus(selectedFeedback.id, status);
+  if (result.success) {
+    // First, refresh the list and stats
+    await loadFeedback(); // This already fetches filtered stats internally
     
-    const result = await updateStatus(selectedFeedback.id, status);
-    if (result.success) {
+    // Then get fresh details
+    const updatedDetails = await getFeedbackDetails(selectedFeedback.id);
+    if (updatedDetails.success && updatedDetails.data) {
+      setSelectedFeedback(updatedDetails.data);
+      // Keep modal open briefly to show updated data
+      setTimeout(() => {
+        setShowModal(false);
+        setSelectedFeedback(null);
+      }, 500);
+    } else {
       setShowModal(false);
       setSelectedFeedback(null);
-      await loadFeedback();
-      await fetchStats();
     }
-  };
+  }
+};
 
   const closeModal = () => {
     setShowModal(false);
@@ -251,15 +258,15 @@ const Feedback: React.FC = () => {
           </button>
         </div>
 
-        {/* Stats Cards */}
-        {stats && (
+        {/* Stats Cards - Now using filteredStats */}
+        {filteredStats && (
           <div className="feedback-stats">
             <div 
               className={`feedback-stat-card total ${statusFilter === '' ? 'active' : ''}`}
               onClick={() => handleStatClick('')}
               style={{ cursor: 'pointer' }}
             >
-              <span className="feedback-stat-value">{stats.total}</span>
+              <span className="feedback-stat-value">{filteredStats.total}</span>
               <span className="feedback-stat-label">Total</span>
               {statusFilter === '' && <div className="stat-active-indicator" />}
             </div>
@@ -269,7 +276,7 @@ const Feedback: React.FC = () => {
               onClick={() => handleStatClick('OPEN')}
               style={{ cursor: 'pointer' }}
             >
-              <span className="feedback-stat-value">{stats.open}</span>
+              <span className="feedback-stat-value">{filteredStats.open}</span>
               <span className="feedback-stat-label">Open</span>
               {statusFilter === 'OPEN' && <div className="stat-active-indicator" />}
             </div>
@@ -279,7 +286,7 @@ const Feedback: React.FC = () => {
               onClick={() => handleStatClick('IN_PROGRESS')}
               style={{ cursor: 'pointer' }}
             >
-              <span className="feedback-stat-value">{stats.inProgress}</span>
+              <span className="feedback-stat-value">{filteredStats.inProgress}</span>
               <span className="feedback-stat-label">In Progress</span>
               {statusFilter === 'IN_PROGRESS' && <div className="stat-active-indicator" />}
             </div>
@@ -289,7 +296,7 @@ const Feedback: React.FC = () => {
               onClick={() => handleStatClick('RESOLVED')}
               style={{ cursor: 'pointer' }}
             >
-              <span className="feedback-stat-value">{stats.resolved}</span>
+              <span className="feedback-stat-value">{filteredStats.resolved}</span>
               <span className="feedback-stat-label">Resolved</span>
               {statusFilter === 'RESOLVED' && <div className="stat-active-indicator" />}
             </div>
@@ -299,7 +306,7 @@ const Feedback: React.FC = () => {
               onClick={() => handleStatClick('CLOSED')}
               style={{ cursor: 'pointer' }}
             >
-              <span className="feedback-stat-value">{stats.closed}</span>
+              <span className="feedback-stat-value">{filteredStats.closed}</span>
               <span className="feedback-stat-label">Closed</span>
               {statusFilter === 'CLOSED' && <div className="stat-active-indicator" />}
             </div>
@@ -388,7 +395,19 @@ const Feedback: React.FC = () => {
                         <div className="feedback-user-info">
                           <div className="feedback-user-avatar">
                             {item.user.avatarUrl ? (
-                              <img src={item.user.avatarUrl} alt={item.user.fullName} />
+                              <img 
+                                src={item.user.avatarUrl} 
+                                alt={item.user.fullName}
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                  const parent = e.currentTarget.parentElement;
+                                  if (parent) {
+                                    const span = document.createElement('span');
+                                    span.textContent = item.user.fullName?.charAt(0).toUpperCase() || '?';
+                                    parent.appendChild(span);
+                                  }
+                                }}
+                              />
                             ) : (
                               <span>{item.user.fullName?.charAt(0).toUpperCase() || '?'}</span>
                             )}
