@@ -10,7 +10,75 @@
   padding: 32px;
   width: 100%;
 }
+/* Add to AdminAudit.css */
 
+/* Active stat card */
+.audit-stat-card.active {
+  border: 2px solid #2b8a3e;
+  background: linear-gradient(135deg, #f0f9f0, white);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(43, 138, 62, 0.15);
+}
+
+.stat-active-indicator {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2b8a3e;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.7;
+  }
+}
+
+/* Active filter indicator */
+.audit-active-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #e7f5ff;
+  border: 1px solid #74c0fc;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  color: #1c7ed6;
+}
+
+.audit-clear-filter-btn {
+  padding: 4px 12px;
+  background: white;
+  border: 1px solid #1c7ed6;
+  border-radius: 4px;
+  color: #1c7ed6;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.audit-clear-filter-btn:hover {
+  background: #1c7ed6;
+  color: white;
+}
+
+/* Make stat cards position relative for indicator */
+.audit-stat-card {
+  position: relative;
+}
 /* Header */
 .audit-header {
   display: flex;

@@ -15,8 +15,8 @@ interface FetchLogsParams extends AuditLogFilters {
   offset: number;
   search?: string;
   adminId?: string;
-  action?: string;
-  startDate?: string;
+  action?: string; 
+  startDate?: string; 
   endDate?: string;
 }
 

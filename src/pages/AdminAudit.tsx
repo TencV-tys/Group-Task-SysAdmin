@@ -1,4 +1,4 @@
-// pages/AdminAudit.tsx
+// pages/AdminAudit.tsx - WITH CLICKABLE STATS CARDS
 import React, { useState, useEffect } from 'react';
 import { useAdminAudit } from '../hooks/useAdminAudit';
 import AuditModal from '../components/AuditModal';
@@ -14,7 +14,7 @@ interface ExportFilterParams {
   action?: string;
   startDate?: string;
   endDate?: string;
-}
+}  
 
 interface FetchParams {
   limit: number;
@@ -27,6 +27,8 @@ interface FetchParams {
 }
 
 const AdminAudit = () => {
+  console.log('🏁 [AdminAudit] Component rendering');
+  
   const {
     logs,
     loading,
@@ -38,6 +40,14 @@ const AdminAudit = () => {
     getLogById,
     setPagination,
   } = useAdminAudit(20);
+
+  console.log('📊 [AdminAudit] Hook data:', { 
+    logsCount: logs.length, 
+    loading, 
+    error,
+    stats: stats ? 'present' : 'null',
+    pagination 
+  });
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -54,8 +64,26 @@ const AdminAudit = () => {
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
+  // ===== NEW: Handle stat card click =====
+  const handleStatClick = (action: string) => {
+    console.log('📊 [AdminAudit] Stat card clicked:', action);
+    setActionFilter(action);
+    setPagination(prev => ({ ...prev, page: 1 }));
+  };
+
   // Fetch logs when filters or pagination change
   useEffect(() => {
+    console.log('🔍 [AdminAudit] Fetch logs useEffect triggered with:', {
+      page: pagination.page,
+      limit: pagination.limit,
+      searchTerm,
+      adminFilter,
+      actionFilter,
+      dateRange,
+      startDate,
+      endDate
+    });
+
     const fetchData = async () => {
       const params: FetchParams = {
         limit: pagination.limit,
@@ -72,16 +100,19 @@ const AdminAudit = () => {
         const end = new Date(); end.setHours(23,59,59,999);
         params.startDate = start.toISOString();
         params.endDate = end.toISOString();
+        console.log('📅 Today range:', { start: params.startDate, end: params.endDate });
       } else if (dateRange === 'week') {
         const end = new Date(); end.setHours(23,59,59,999);
         const start = new Date(); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0);
         params.startDate = start.toISOString();
         params.endDate = end.toISOString();
+        console.log('📅 Week range:', { start: params.startDate, end: params.endDate });
       } else if (dateRange === 'month') {
         const end = new Date(); end.setHours(23,59,59,999);
         const start = new Date(); start.setDate(start.getDate() - 29); start.setHours(0,0,0,0);
         params.startDate = start.toISOString();
         params.endDate = end.toISOString();
+        console.log('📅 Month range:', { start: params.startDate, end: params.endDate });
       } else if (dateRange === 'custom') {
         if (startDate) {
           const start = new Date(startDate); start.setHours(0,0,0,0);
@@ -91,8 +122,10 @@ const AdminAudit = () => {
           const end = new Date(endDate); end.setHours(23,59,59,999);
           params.endDate = end.toISOString();
         }
+        console.log('📅 Custom range:', { start: params.startDate, end: params.endDate });
       }
 
+      console.log('📤 [AdminAudit] Fetching logs with params:', params);
       await fetchLogs(params);
       setInitialLoad(false);
     };
@@ -102,6 +135,8 @@ const AdminAudit = () => {
 
   // Fetch statistics when date range changes
   useEffect(() => {
+    console.log('📊 [AdminAudit] Fetch stats useEffect triggered with dateRange:', dateRange);
+    
     const statsParams: { startDate?: string; endDate?: string } = {};
     
     if (dateRange === 'today') {
@@ -124,38 +159,47 @@ const AdminAudit = () => {
       if (endDate) statsParams.endDate = endDate;
     }
     
-    fetchStatistics(statsParams);
+    console.log('📤 [AdminAudit] Fetching stats with params:', statsParams);
+    fetchStatistics(statsParams).then(result => {
+      console.log('📥 [AdminAudit] Stats result:', result);
+    });
   }, [dateRange, startDate, endDate, fetchStatistics]);
 
   const handleSearch = () => {
+    console.log('🔍 [AdminAudit] Search clicked, resetting to page 1');
     setPagination(prev => ({ ...prev, page: 1 }));
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
+      console.log('↵ [AdminAudit] Enter key pressed');
       handleSearch();
     }
   };
 
   const handlePageChange = (newPage: number) => {
+    console.log('📄 [AdminAudit] Page changing to:', newPage);
     setPagination(prev => ({ ...prev, page: newPage }));
   };
 
   const handleViewLog = async (logId: string) => {
+    console.log('👁️ [AdminAudit] Viewing log:', logId);
     setSelectedRowId(logId);
     setModalLoading(true);
     setShowModal(true);
 
     try {
       const result = await getLogById(logId);
+      console.log('📦 [AdminAudit] Log details result:', result);
       if (result.success && result.log) {
         setSelectedLog(result.log);
       } else {
+        console.error('❌ [AdminAudit] Failed to load log:', result.message);
         setShowModal(false);
         setSelectedLog(null);
       }
     } catch (error) { 
-      console.error('Error loading audit log:', error);
+      console.error('❌ [AdminAudit] Error loading audit log:', error);
       setShowModal(false);
       setSelectedLog(null);
     } finally {
@@ -169,6 +213,7 @@ const AdminAudit = () => {
   };
 
   const handleExport = async (format: 'json' | 'csv') => {
+    console.log('📥 [AdminAudit] Exporting as:', format);
     try {
       const filterParams: ExportFilterParams = {};
       if (searchTerm) filterParams.search = searchTerm;
@@ -178,10 +223,12 @@ const AdminAudit = () => {
         if (startDate) filterParams.startDate = startDate;
         if (endDate) filterParams.endDate = endDate;
       }
+      console.log('📤 [AdminAudit] Export params:', filterParams);
 
       const result = await AdminAuditService.exportLogs(format, filterParams);
 
       if (format === 'csv' && typeof result === 'string') {
+        console.log('✅ [AdminAudit] CSV export successful');
         const blob = new Blob([result], { type: 'text/csv' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -190,6 +237,7 @@ const AdminAudit = () => {
         a.click();
         window.URL.revokeObjectURL(url);
       } else if (typeof result === 'object' && result !== null && 'success' in result) {
+        console.log('✅ [AdminAudit] JSON export successful');
         const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -199,16 +247,18 @@ const AdminAudit = () => {
         window.URL.revokeObjectURL(url);
       }
     } catch (err) {
-      console.error('Error exporting logs:', err);
+      console.error('❌ [AdminAudit] Error exporting logs:', err);
     }
   };
 
   const closeModal = () => {
+    console.log('🚪 [AdminAudit] Closing modal');
     setShowModal(false);
     setTimeout(() => setSelectedLog(null), 300);
   };
 
   const clearFilters = () => {
+    console.log('🧹 [AdminAudit] Clearing all filters');
     setSearchTerm('');
     setAdminFilter('');
     setActionFilter('');
@@ -259,8 +309,11 @@ const AdminAudit = () => {
   };
 
   if (initialLoad && loading && logs.length === 0) {
+    console.log('⏳ [AdminAudit] Showing loading screen');
     return <LoadingScreen message="Loading audit logs..." fullScreen />;
   }
+
+  console.log('🎨 [AdminAudit] Rendering with stats:', stats);
 
   return (
     <div className="audit-wrapper">
@@ -285,21 +338,54 @@ const AdminAudit = () => {
           </div>
         </div>
 
-        {/* Stats Cards */}
+        {/* Stats Cards - NOW CLICKABLE */}
         {stats && (
           <div className="audit-stats">
-            <div className="audit-stat-card">
+            {/* Total Logs Card - Click to clear action filter */}
+            <div 
+              className={`audit-stat-card ${actionFilter === '' ? 'active' : ''}`}
+              onClick={() => handleStatClick('')}
+              style={{ cursor: 'pointer' }}
+            >
               <span className="audit-stat-value">{stats.total}</span>
               <span className="audit-stat-label">Total Logs</span>
+              {actionFilter === '' && <div className="stat-active-indicator" />}
             </div>
-            <div className="audit-stat-card">
-              <span className="audit-stat-value">{stats.byAction?.length || 0}</span>
-              <span className="audit-stat-label">Unique Actions</span>
-            </div>
-            <div className="audit-stat-card">
-              <span className="audit-stat-value">{stats.topAdmins?.length || 0}</span>
-              <span className="audit-stat-label">Active Admins</span>
-            </div>
+
+            {/* Action Cards - Show top actions */}
+            {stats.byAction?.slice(0, 3).map((action) => (
+              <div 
+                key={action.action}
+                className={`audit-stat-card ${actionFilter === action.action ? 'active' : ''}`}
+                onClick={() => handleStatClick(action.action)}
+                style={{ cursor: 'pointer' }}
+              >
+                <span className="audit-stat-value">{action.count}</span>
+                <span className="audit-stat-label">{action.action.replace(/_/g, ' ')}</span>
+                {actionFilter === action.action && <div className="stat-active-indicator" />}
+              </div>
+            ))}
+
+            {/* If less than 3 actions, add placeholder for unique actions */}
+            {stats.byAction && stats.byAction.length < 3 && (
+              <div className="audit-stat-card">
+                <span className="audit-stat-value">{stats.byAction.length}</span>
+                <span className="audit-stat-label">Unique Actions</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Active Filter Indicator */}
+        {actionFilter && (
+          <div className="audit-active-filter">
+            <span>Filtering by action: <strong>{actionFilter.replace(/_/g, ' ')}</strong></span>
+            <button 
+              className="audit-clear-filter-btn"
+              onClick={() => handleStatClick('')}
+            >
+              Clear Filter
+            </button>
           </div>
         )}
 
@@ -328,25 +414,37 @@ const AdminAudit = () => {
           <div className="audit-filter-group">
             <button
               className={`audit-filter-btn ${dateRange === 'today' ? 'active' : ''}`}
-              onClick={() => setDateRange('today')}
+              onClick={() => {
+                console.log('📅 [AdminAudit] Date range changed to: today');
+                setDateRange('today');
+              }}
             >
               Today
             </button>
             <button
               className={`audit-filter-btn ${dateRange === 'week' ? 'active' : ''}`}
-              onClick={() => setDateRange('week')}
+              onClick={() => {
+                console.log('📅 [AdminAudit] Date range changed to: week');
+                setDateRange('week');
+              }}
             >
               Last 7 Days
             </button>
             <button
               className={`audit-filter-btn ${dateRange === 'month' ? 'active' : ''}`}
-              onClick={() => setDateRange('month')}
+              onClick={() => {
+                console.log('📅 [AdminAudit] Date range changed to: month');
+                setDateRange('month');
+              }}
             >
               Last 30 Days
             </button>
             <button
               className={`audit-filter-btn ${dateRange === 'custom' ? 'active' : ''}`}
-              onClick={() => setDateRange('custom')}
+              onClick={() => {
+                console.log('📅 [AdminAudit] Date range changed to: custom');
+                setDateRange('custom');
+              }}
             >
               Custom
             </button>
@@ -357,7 +455,10 @@ const AdminAudit = () => {
               <input
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(e) => {
+                  console.log('📅 [AdminAudit] Start date changed:', e.target.value);
+                  setStartDate(e.target.value);
+                }}
                 className="audit-date-input"
                 placeholder="Start Date"
               />
@@ -365,7 +466,10 @@ const AdminAudit = () => {
               <input
                 type="date"
                 value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
+                onChange={(e) => {
+                  console.log('📅 [AdminAudit] End date changed:', e.target.value);
+                  setEndDate(e.target.value);
+                }}
                 className="audit-date-input"
                 placeholder="End Date"
               />
@@ -377,14 +481,20 @@ const AdminAudit = () => {
               type="text"
               placeholder="Filter by Admin ID"
               value={adminFilter}
-              onChange={(e) => setAdminFilter(e.target.value)}
+              onChange={(e) => {
+                console.log('👤 [AdminAudit] Admin filter changed:', e.target.value);
+                setAdminFilter(e.target.value);
+              }}
               className="audit-filter-input"
             />
             <input
               type="text"
               placeholder="Filter by Action"
               value={actionFilter}
-              onChange={(e) => setActionFilter(e.target.value)}
+              onChange={(e) => {
+                console.log('🎬 [AdminAudit] Action filter changed:', e.target.value);
+                setActionFilter(e.target.value);
+              }}
               className="audit-filter-input"
             />
           </div>
