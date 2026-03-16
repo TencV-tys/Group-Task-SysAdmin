@@ -1,208 +1,190 @@
-// pages/AdminGroups.tsx - COMPLETE WITH THRESHOLD CHECKING IN TABLE
-import React, { useState, useEffect, useCallback } from 'react';
-import { AdminGroupsService } from '../services/admin.groups.service';
-import type { Group, GroupStatisticsResponse } from '../services/admin.groups.service';
+// pages/AdminGroups.tsx - COMPLETE FIXED WITH ALL TYPES
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useAdminGroups } from '../hooks/useAdminGroups';
+import { AdminGroupsService, ACTION_BUTTONS, GroupStatus } from '../services/admin.groups.service';
+import type { 
+  Group, 
+  ReportAnalysis, 
+  ActionType, 
+  GroupFilters,
+  AvailableAction 
+} from '../services/admin.groups.service';
 import GroupModal from '../components/GroupModal';
 import LoadingScreen from '../components/LoadingScreen';
 import ErrorDisplay from '../components/ErrorDisplay';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { 
-  faExclamationTriangle, 
+import {
+  faExclamationTriangle,
   faFlag,
   faTrash,
-  faBan,
-  faExclamationCircle,
-  faInfoCircle,
   faUndo,
+  faEye,
+  faRedoAlt,
+  faSearch,
+  faChevronLeft,
+  faChevronRight,
+  faUsers,
+  faTasks,
 } from '@fortawesome/free-solid-svg-icons';
 import './styles/AdminGroups.css';
 
-interface FilterParams {
+interface LocalGroupFilters {
   page: number;
   limit: number;
   sortBy: string;
   sortOrder: 'asc' | 'desc';
   search?: string;
-  minMembers?: number;
-  maxMembers?: number;
-  createdAfter?: string;
-  createdBefore?: string;
+  status?: string;
+  hasReports?: boolean;
 }
 
-// Report Analysis Types
-interface ReportTypeInfo {
-  type: string;
-  count: number;
-  threshold: number;
-  suggestedAction: string;
-  severity: string;
+// Type guard for GroupResponse
+interface GroupResponseSuccess {
+  success: true;
+  group: Group & {
+    stats?: {
+      totalTasks: number;
+      completedTasks: number;
+      completionRate: number;
+    };
+    members?: Array<{
+      id: string;
+      userId: string;
+      groupRole: string;
+      joinedAt: string;
+      user: {
+        id: string;
+        fullName: string;
+        email: string;
+        avatarUrl?: string;
+        roleStatus: string;
+      };
+    }>;
+  };
   message: string;
-  meetsThreshold: boolean;
 }
 
-interface SuggestedAction {
-  action: string;
-  reason: string;
-  severity: string;
-  reportTypes: string[];
+interface GroupResponseError {
+  success: false;
+  message: string;
 }
 
-interface ReportAnalysis {
-  groupId: string;
-  groupName: string;
-  reportCount: number;
-  reportTypes: ReportTypeInfo[];
-  suggestedActions: SuggestedAction[];
-  requiresImmediateAction: boolean;
-}
+type GroupResponse = GroupResponseSuccess | GroupResponseError;
 
+// Extended Group type with reportAnalysis
 interface GroupWithAnalysis extends Group {
   reportAnalysis?: ReportAnalysis | null;
 }
 
-// Action icons mapping
-const ACTION_ICONS = {
-  SUSPEND: faExclamationCircle,
-  RESTORE: faUndo,
-  SOFT_DELETE: faTrash,
-  HARD_DELETE: faBan,
-  WARNING: faExclamationTriangle,
-  REVIEW: faInfoCircle
-} as const;
+const AdminGroups: React.FC = () => {
+  console.log('🏁 [AdminGroups] Component rendering');
+  
+  const {
+    groups,
+    loading,
+    error,
+    stats,
+    pagination,
+    actionLoading,
+    fetchGroups,
+    fetchStats,
+    analyzeGroup,
+    applyAction,
+    deleteGroup,
+    getGroupById,
+  } = useAdminGroups();
 
-const ACTION_COLORS = {
-  SUSPEND: '#e67700',
-  RESTORE: '#2b8a3e',
-  SOFT_DELETE: '#e67700',
-  HARD_DELETE: '#fa5252',
-  WARNING: '#fab005',
-  REVIEW: '#1c7ed6'
-} as const;
-
-const ACTION_NAMES = {
-  SUSPEND: 'Suspend Group',
-  RESTORE: 'Restore Group',
-  SOFT_DELETE: 'Soft Delete',
-  HARD_DELETE: 'Hard Delete',
-  WARNING: 'Send Warning',
-  REVIEW: 'Mark for Review'
-} as const;
-
-type ActionType = keyof typeof ACTION_NAMES;
-
-const AdminGroups = () => {
-  const [groups, setGroups] = useState<GroupWithAnalysis[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<GroupStatisticsResponse['statistics'] | null>(null);
-  const [pagination, setPagination] = useState({
-    total: 0,
-    page: 1,
-    limit: 20,
-    pages: 1,
-    hasMore: false
+  console.log('📊 [AdminGroups] Hook data:', { 
+    groupsCount: groups.length, 
+    loading, 
+    error, 
+    stats: stats ? 'present' : 'null',
+    pagination 
   });
 
-  // Filters
-  const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState('createdAt');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [minMembers, setMinMembers] = useState('');
-  const [maxMembers, setMaxMembers] = useState('');
-  const [dateRange, setDateRange] = useState<'today' | 'week' | 'month' | 'custom' | 'all'>('all');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [filters, setFilters] = useState<LocalGroupFilters>({
+    page: 1,
+    limit: 20,
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
+  });
 
-  // Modal and delete
-  const [selectedGroup, setSelectedGroup] = useState<GroupWithAnalysis | null>(null);
+  const [searchInput, setSearchInput] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Modal states
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
-
-  // Report analysis modal
   const [showReportModal, setShowReportModal] = useState(false);
   const [selectedAnalysis, setSelectedAnalysis] = useState<ReportAnalysis | null>(null);
-  const [applyingAction, setApplyingAction] = useState(false);
 
-  const fetchGroups = useCallback(async () => {
-    setLoading(true);
-    try {
-      const filterParams: FilterParams = {
-        page: pagination.page,
-        limit: pagination.limit,
-        sortBy,
-        sortOrder,
-        _t: Date.now() // Add timestamp to avoid cache
-      };
+  // Track initial loads
+  const initialLoadDoneRef = useRef(false);
+  const statsLoadedRef = useRef(false);
 
-      if (searchTerm) filterParams.search = searchTerm;
-      if (minMembers) filterParams.minMembers = parseInt(minMembers);
-      if (maxMembers) filterParams.maxMembers = parseInt(maxMembers);
-
-      if (dateRange === 'today') {
-        const today = new Date().toISOString().split('T')[0];
-        filterParams.createdAfter = today;
-        filterParams.createdBefore = today;
-      } else if (dateRange === 'week') {
-        const end = new Date();
-        const start = new Date();
-        start.setDate(start.getDate() - 7);
-        filterParams.createdAfter = start.toISOString().split('T')[0];
-        filterParams.createdBefore = end.toISOString().split('T')[0];
-      } else if (dateRange === 'month') {
-        const end = new Date();
-        const start = new Date();
-        start.setMonth(start.getMonth() - 1);
-        filterParams.createdAfter = start.toISOString().split('T')[0];
-        filterParams.createdBefore = end.toISOString().split('T')[0];
-      } else if (dateRange === 'custom') {
-        if (startDate) filterParams.createdAfter = startDate;
-        if (endDate) filterParams.createdBefore = endDate;
-      }
-
-      const result = await AdminGroupsService.getGroupsWithAnalysis(filterParams);
-      
-      if (result.success) {
-        setGroups(result.groups || []);
-        setPagination(prev => ({
-          total: result.pagination?.total || 0,
-          page: prev.page,
-          limit: prev.limit,
-          pages: result.pagination?.pages || 1,
-          hasMore: result.pagination?.hasMore || false
-        }));
-        setError(null);
-      } else {
-        setError(result.message || 'Failed to load groups');
-      }
-    } catch (err) {
-      setError('Network error');
-      console.error('Error fetching groups:', err);
-    } finally {
-      setLoading(false);
+  // ===== Helper to build API filters =====
+  const buildApiFilters = useCallback((customFilters?: Partial<LocalGroupFilters>): GroupFilters => {
+    const currentFilters = customFilters || filters;
+    const apiFilters: GroupFilters = { 
+      page: currentFilters.page,
+      limit: currentFilters.limit,
+      sortBy: currentFilters.sortBy,
+      sortOrder: currentFilters.sortOrder,
+    };
+    
+    const currentStatus = customFilters?.status !== undefined ? customFilters.status : statusFilter;
+    if (currentStatus !== 'ALL') {
+      apiFilters.status = currentStatus as GroupStatus;
     }
-  }, [pagination.page, pagination.limit, searchTerm, sortBy, sortOrder, minMembers, maxMembers, dateRange, startDate, endDate]);
-
-  const fetchStatistics = useCallback(async () => {
-    try {
-      const result = await AdminGroupsService.getGroupStatistics();
-      if (result.success) {
-        setStats(result.statistics || null);
-      }
-    } catch (err) {
-      console.error('Error fetching statistics:', err);
+    
+    const currentSearch = customFilters?.search !== undefined ? customFilters.search : searchInput;
+    if (currentSearch) {
+      apiFilters.search = currentSearch;
     }
-  }, []);
+    
+    if (currentFilters.hasReports) {
+      apiFilters.hasReports = currentFilters.hasReports;
+    }
+    
+    return apiFilters;
+  }, [filters, statusFilter, searchInput]);
 
+  // ===== Load groups with explicit filters =====
+  const loadGroups = useCallback(async (filterParams?: Partial<LocalGroupFilters>) => {
+    const apiFilters = buildApiFilters(filterParams);
+    console.log('🚀 [AdminGroups] Loading groups with filters:', apiFilters);
+    await fetchGroups(apiFilters);
+  }, [fetchGroups, buildApiFilters]);
+
+  // ===== Initial load =====
   useEffect(() => {
-    fetchGroups();
-    fetchStatistics();
-  }, [fetchGroups, fetchStatistics]);
+    if (!initialLoadDoneRef.current) {
+      initialLoadDoneRef.current = true;
+      console.log('📥 [AdminGroups] Initial groups load');
+      loadGroups();
+    }
+  }, [loadGroups]);
 
+  // ===== Load stats once =====
+  useEffect(() => {
+    if (!statsLoadedRef.current) {
+      statsLoadedRef.current = true;
+      console.log('📥 [AdminGroups] Initial stats fetch');
+      fetchStats();
+    }
+  }, [fetchStats]);
+
+  // ===== Handlers that explicitly call loadGroups with new filters =====
   const handleSearch = () => {
-    setPagination(prev => ({ ...prev, page: 1 }));
+    console.log('🔍 [AdminGroups] Search triggered with input:', searchInput);
+    const newFilters = { ...filters, page: 1, search: searchInput };
+    setFilters(newFilters);
+    loadGroups(newFilters);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -211,83 +193,150 @@ const AdminGroups = () => {
     }
   };
 
+  const handleStatusChange = (status: string) => {
+    console.log('🏷️ [AdminGroups] Status filter changed:', status);
+    setStatusFilter(status);
+    const newFilters = { ...filters, page: 1, hasReports: undefined, status };
+    setFilters(newFilters);
+    loadGroups(newFilters);
+  };
+
   const handlePageChange = (newPage: number) => {
-    setPagination(prev => ({ ...prev, page: newPage }));
+    console.log('📄 [AdminGroups] Page changed:', newPage);
+    const newFilters = { ...filters, page: newPage };
+    setFilters(newFilters);
+    loadGroups(newFilters);
   };
 
-  const handleStatClick = (filterType: string) => {
-    switch(filterType) {
-      case 'total':
-        clearFilters();
-        break;
-      case 'reports':
-        setMinMembers('1');
-        break;
-    }
-    setPagination(prev => ({ ...prev, page: 1 }));
+  const handleSortChange = (sortBy: string) => {
+    console.log('🔽 [AdminGroups] Sort by changed:', sortBy);
+    const newFilters = { ...filters, sortBy, page: 1 };
+    setFilters(newFilters);
+    loadGroups(newFilters);
   };
 
-  const handleAnalyzeReports = async (groupId: string) => {
-    try {
-      const result = await AdminGroupsService.analyzeGroupReports(groupId);
-      if (result.success && result.analysis) {
-        setSelectedAnalysis(result.analysis);
-        setShowReportModal(true);
-      } else {
-        alert('Could not analyze reports for this group');
-      }
-    } catch (error) {
-      console.error('Error analyzing reports:', error);
-      alert('Failed to analyze reports');
-    }
+ const handleSortOrderToggle = () => {
+  const newOrder = filters.sortOrder === 'asc' ? 'desc' : 'asc';
+  console.log('🔄 [AdminGroups] Sort order toggled:', newOrder);
+  const newFilters: LocalGroupFilters = { 
+    ...filters, 
+    sortOrder: newOrder, // TypeScript now knows this is 'asc' | 'desc'
+    page: 1 
   };
+  setFilters(newFilters);
+  loadGroups(newFilters);
+};
 
-  const handleApplyAction = async (action: string) => {
-    if (!selectedAnalysis) return;
+  const handleRefresh = () => {
+    console.log('🔄 [AdminGroups] Manual refresh triggered');
+    setRefreshing(true);
+    Promise.all([
+      loadGroups(),
+      fetchStats()
+    ]).finally(() => {
+      setRefreshing(false);
+    });
+  }; 
+
+  const handleStatClick = (status: string) => {
+    console.log('📊 [AdminGroups] Stat card clicked:', status);
     
-    setApplyingAction(true);
-    try {
-      const result = await AdminGroupsService.applyAction(
-        selectedAnalysis.groupId,
-        action
-      );
-      
-      if (result.success) {
-        alert(`${ACTION_NAMES[action as ActionType] || action} applied successfully`);
-        setShowReportModal(false);
-        await Promise.all([
-          fetchGroups(),
-          fetchStatistics()
-        ]);
-      } else {
-        alert(result.message || 'Failed to apply action');
-      }
-    } catch (error) {
-      console.error('Error applying action:', error);
-      alert('Failed to apply action');
-    } finally {
-      setApplyingAction(false);
+    if (status === 'REPORTS') {
+      const newFilters = { 
+        ...filters, 
+        hasReports: true,
+        page: 1 
+      };
+      setStatusFilter('ALL');
+      setFilters(newFilters);
+      loadGroups(newFilters);
+    } else {
+      const newFilters = { 
+        ...filters, 
+        hasReports: undefined,
+        page: 1,
+        status 
+      };
+      setStatusFilter(status);
+      setFilters(newFilters);
+      loadGroups(newFilters);
     }
   };
 
+  const clearFilters = () => {
+    console.log('🧹 [AdminGroups] Clearing all filters');
+    setSearchInput('');
+    setStatusFilter('ALL');
+    const newFilters: LocalGroupFilters = {
+      page: 1,
+      limit: 20,
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
+    };
+    setFilters(newFilters);
+    loadGroups(newFilters);
+  };
+
+  // Report analysis
+  const handleAnalyzeReports = async (groupId: string) => {
+    console.log('🔍 [AdminGroups] Analyzing reports for group:', groupId);
+    const result = await analyzeGroup(groupId);
+    
+    if (result.success && result.analysis) {
+      setSelectedAnalysis(result.analysis);
+      setShowReportModal(true);
+    } else {
+      alert('Could not analyze reports for this group');
+    }
+  };
+
+ // In AdminGroups.tsx - Fix handleApplyAction signature
+
+const handleApplyAction = async (groupId: string, action: ActionType) => {
+  // Find the selected analysis for this group
+  const analysis = selectedAnalysis?.groupId === groupId ? selectedAnalysis : null;
+  
+  if (!analysis) {
+    console.error('❌ [AdminGroups] No selected analysis for group:', groupId);
+    return;
+  }
+  
+  console.log('🎬 [AdminGroups] Applying action:', { 
+    action, 
+    groupId 
+  }); 
+  
+  const result = await applyAction(groupId, action);
+  
+  if (result.success) {
+    alert(`${ACTION_BUTTONS[action].label} applied successfully`);
+    setShowReportModal(false);
+    setSelectedAnalysis(null);
+    await loadGroups();
+    await fetchStats();
+  } else {
+    alert(result.message || 'Failed to apply action');
+  }
+};
+  // View group details - FIXED with proper typing
   const handleViewGroup = async (groupId: string) => {
+    if (selectedRowId === groupId) return;
+    
+    console.log('👁️ [AdminGroups] Viewing group:', groupId);
     setSelectedRowId(groupId);
     setModalLoading(true);
-    setShowModal(true);
-
+    
     try {
-      const result = await AdminGroupsService.getGroupById(groupId);
+      const result = await getGroupById(groupId) as GroupResponse;
       
       if (result.success && result.group) {
         setSelectedGroup(result.group);
+        setShowModal(true);
       } else {
-        setShowModal(false);
-        setSelectedGroup(null);
+        alert('Failed to load group details');
       }
-    } catch (error) {
-      console.error('Error loading group:', error);
-      setShowModal(false);
-      setSelectedGroup(null);
+    } catch (err) {
+      console.error('❌ [AdminGroups] Exception loading group:', err);
     } finally {
       setModalLoading(false);
       setSelectedRowId(null);
@@ -298,6 +347,7 @@ const AdminGroups = () => {
     handleViewGroup(groupId);
   };
 
+  // Delete handlers
   const handleDeleteClick = (e: React.MouseEvent, groupId: string) => {
     e.stopPropagation();
     e.preventDefault();
@@ -305,68 +355,53 @@ const AdminGroups = () => {
   };
 
   const handleDeleteConfirm = async (groupId: string, hardDelete?: boolean) => {
+    const mode = hardDelete ? 'HARD DELETE' : 'SOFT DELETE';
+    console.log(`🗑️ [AdminGroups] ${mode} confirm`);
+    
     setDeleteLoading(true);
     try {
-      const result = await AdminGroupsService.deleteGroup(groupId, { hardDelete });
+      const result = await deleteGroup(groupId, hardDelete);
+      
       if (result.success) {
         setShowDeleteModal(null);
+        setShowModal(false);
         alert('Group deleted successfully!');
-        await Promise.all([
-          fetchGroups(),
-          fetchStatistics()
-        ]);
+        await loadGroups();
+        await fetchStats();
       } else {
         alert(result.message || 'Failed to delete group');
       }
-    } catch {
-      alert('Network error. Please check your connection and try again.');
     } finally {
       setDeleteLoading(false);
     }
   };
 
   const handleRestore = async (groupId: string) => {
+    console.log('♻️ [AdminGroups] Restore clicked');
+    
     setDeleteLoading(true);
     try {
-      const result = await AdminGroupsService.applyAction(groupId, 'RESTORE');
+      const result = await applyAction(groupId, 'RESTORE');
+      
       if (result.success) {
         alert('Group restored successfully!');
-        await Promise.all([
-          fetchGroups(),
-          fetchStatistics()
-        ]);
-        // Close any open modals
-        closeDeleteModal();
-        closeReportModal();
+        setShowDeleteModal(null);
+        setShowReportModal(false);
+        setShowModal(false);
+        await loadGroups();
+        await fetchStats();
       } else {
         alert(result.message || 'Failed to restore group');
       }
-    } catch (error) {
-      console.error('Error restoring group:', error);
-      alert('Failed to restore group');
     } finally {
       setDeleteLoading(false);
     }
   };
 
-  // Helper function to check if delete actions are allowed based on thresholds
-  const canDeleteGroup = (group: GroupWithAnalysis): boolean => {
-    if (!group.reportAnalysis?.suggestedActions) return false;
-    
-    return group.reportAnalysis.suggestedActions.some(
-      a => (a.action === 'SOFT_DELETE' || a.action === 'HARD_DELETE') && 
-      a.reportTypes.some(type => {
-        const typeData = group.reportAnalysis?.reportTypes?.find(t => t.type === type);
-        return typeData?.meetsThreshold === true;
-      })
-    );
-  };
-
+  // Modal close handlers
   const closeModal = () => {
     setShowModal(false);
-    setTimeout(() => {
-      setSelectedGroup(null);
-    }, 300);
+    setTimeout(() => setSelectedGroup(null), 300);
   };
 
   const closeDeleteModal = () => {
@@ -375,31 +410,45 @@ const AdminGroups = () => {
 
   const closeReportModal = () => {
     setShowReportModal(false);
-    setTimeout(() => {
-      setSelectedAnalysis(null);
-    }, 300);
-  };
-
-  const clearFilters = () => {
-    setSearchTerm('');
-    setMinMembers('');
-    setMaxMembers('');
-    setDateRange('all');
-    setStartDate('');
-    setEndDate('');
-    setSortBy('createdAt');
-    setSortOrder('desc');
-    setPagination(prev => ({ ...prev, page: 1 }));
+    setTimeout(() => setSelectedAnalysis(null), 300);
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch {
+      return 'Invalid date';
+    }
   };
- 
+
+  const totalPages = Math.ceil(pagination.total / pagination.limit);
+
+  // Check if delete button should be disabled based on report analysis - FIXED with proper types
+  const isDeleteDisabled = (group: GroupWithAnalysis): boolean => {
+    // If no reports, delete is allowed
+    if (!group._count?.reports || group._count.reports === 0) {
+      return false;
+    }
+    
+    // Check if there's analysis data
+    const analysis = group.reportAnalysis;
+    if (!analysis) return true; // Disable if reports exist but no analysis yet
+    
+    // Check if any delete action is available with proper typing
+    const hasSoftDelete = analysis.availableActions?.some(
+      (a: AvailableAction) => a.action === 'SOFT_DELETE' && a.canExecute
+    );
+    const hasHardDelete = analysis.availableActions?.some(
+      (a: AvailableAction) => a.action === 'HARD_DELETE' && a.canExecute
+    );
+    
+    return !(hasSoftDelete || hasHardDelete);
+  };
+
   if (loading && groups.length === 0) {
     return <LoadingScreen message="Loading groups..." fullScreen />;
   }
@@ -416,28 +465,69 @@ const AdminGroups = () => {
             </h1>
             <p>View and manage all user groups</p>
           </div>
+          <div className="groups-header-actions">
+            <button 
+              className="refresh-btn" 
+              onClick={handleRefresh} 
+              disabled={refreshing}
+            >
+              <FontAwesomeIcon icon={faRedoAlt} className={refreshing ? 'fa-spin' : ''} />
+              Refresh
+            </button>
+          </div>
         </div>
 
         {/* Stats Cards */}
         {stats && (
           <div className="groups-stats">
             <div 
-              className={`groups-stat-card ${dateRange === 'all' && !minMembers ? 'active' : ''}`}
-              onClick={() => handleStatClick('total')}
+              className={`groups-stat-card ${statusFilter === 'ALL' && !filters.hasReports ? 'active' : ''}`}
+              onClick={() => handleStatClick('ALL')}
               style={{ cursor: 'pointer' }}
             >
               <span className="groups-stat-value">{stats.overview.total}</span>
               <span className="groups-stat-label">Total Groups</span>
-              {dateRange === 'all' && !minMembers && <div className="stat-active-indicator" />}
+              {statusFilter === 'ALL' && !filters.hasReports && <div className="stat-active-indicator" />}
             </div>
+            
             <div 
-              className={`groups-stat-card ${minMembers ? 'active' : ''}`}
-              onClick={() => handleStatClick('reports')}
+              className={`groups-stat-card ${statusFilter === 'ACTIVE' ? 'active' : ''}`}
+              onClick={() => handleStatClick('ACTIVE')}
               style={{ cursor: 'pointer' }}
             >
-              <span className="groups-stat-value">{stats.overview.withReports}</span>
+              <span className="groups-stat-value">{stats.overview.active || 0}</span>
+              <span className="groups-stat-label">Active</span>
+              {statusFilter === 'ACTIVE' && <div className="stat-active-indicator" />}
+            </div>
+            
+            <div 
+              className={`groups-stat-card ${statusFilter === 'SUSPENDED' ? 'active' : ''}`}
+              onClick={() => handleStatClick('SUSPENDED')}
+              style={{ cursor: 'pointer' }}
+            >
+              <span className="groups-stat-value">{stats.overview.suspended || 0}</span>
+              <span className="groups-stat-label">Suspended</span>
+              {statusFilter === 'SUSPENDED' && <div className="stat-active-indicator" />}
+            </div>
+            
+            <div 
+              className={`groups-stat-card ${statusFilter === 'DELETED' ? 'active' : ''}`}
+              onClick={() => handleStatClick('DELETED')}
+              style={{ cursor: 'pointer' }}
+            >
+              <span className="groups-stat-value">{stats.overview.deleted || 0}</span>
+              <span className="groups-stat-label">Deleted</span>
+              {statusFilter === 'DELETED' && <div className="stat-active-indicator" />}
+            </div>
+            
+            <div 
+              className={`groups-stat-card reports ${filters.hasReports ? 'active' : ''}`}
+              onClick={() => handleStatClick('REPORTS')}
+              style={{ cursor: 'pointer' }}
+            >
+              <span className="groups-stat-value">{stats.overview.withReports || 0}</span>
               <span className="groups-stat-label">With Reports</span>
-              {minMembers && <div className="stat-active-indicator" />}
+              {filters.hasReports && <div className="stat-active-indicator" />}
             </div>
           </div>
         )}
@@ -446,19 +536,20 @@ const AdminGroups = () => {
         <div className="groups-filters">
           <div className="groups-search">
             <div className="groups-search-wrapper">
-              <svg className="groups-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
+              <FontAwesomeIcon icon={faSearch} className="groups-search-icon" />
               <input
                 type="text"
                 placeholder="Search groups by name, description..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 onKeyPress={handleKeyPress}
                 className="groups-search-input"
               />
-              <button onClick={handleSearch} className="groups-search-btn">
+              <button 
+                className="groups-search-btn" 
+                onClick={handleSearch}
+                disabled={loading}
+              >
                 Search
               </button>
             </div>
@@ -467,136 +558,72 @@ const AdminGroups = () => {
           <div className="groups-filter-row">
             <div className="groups-filter-group">
               <label>Sort By</label>
+              <div className="groups-sort-controls">
+                <select 
+                  value={filters.sortBy} 
+                  onChange={(e) => handleSortChange(e.target.value)}
+                  className="groups-select"
+                  disabled={loading}
+                >
+                  <option value="createdAt">Created Date</option>
+                  <option value="name">Name</option>
+                  <option value="updatedAt">Last Updated</option>
+                </select>
+                <button 
+                  className="groups-sort-order"
+                  onClick={handleSortOrderToggle}
+                  disabled={loading}
+                >
+                  {filters.sortOrder === 'asc' ? '↑' : '↓'}
+                </button>
+              </div>
+            </div>
+
+            <div className="groups-filter-group">
+              <label>Status Filter</label>
               <select 
-                value={sortBy} 
-                onChange={(e) => setSortBy(e.target.value)}
+                value={statusFilter} 
+                onChange={(e) => handleStatusChange(e.target.value)}
                 className="groups-select"
+                disabled={loading}
               >
-                <option value="createdAt">Created Date</option>
-                <option value="name">Name</option>
-                <option value="updatedAt">Last Updated</option>
+                <option value="ALL">All Status</option>
+                <option value="ACTIVE">Active</option>
+                <option value="SUSPENDED">Suspended</option>
+                <option value="DELETED">Deleted</option>
               </select>
-              <button 
-                className="groups-sort-order"
-                onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-              >
-                {sortOrder === 'asc' ? '↑' : '↓'}
-              </button>
-            </div>
-
-            <div className="groups-filter-group">
-              <label>Member Count</label>
-              <div className="groups-range-inputs">
-                <input
-                  type="number"
-                  placeholder="Min"
-                  value={minMembers}
-                  onChange={(e) => setMinMembers(e.target.value)}
-                  className="groups-range-input"
-                  min="0"
-                />
-                <span>-</span>
-                <input
-                  type="number"
-                  placeholder="Max"
-                  value={maxMembers}
-                  onChange={(e) => setMaxMembers(e.target.value)}
-                  className="groups-range-input"
-                  min="0"
-                />
-              </div>
             </div>
           </div>
 
-          <div className="groups-filter-row">
-            <div className="groups-filter-group">
-              <label>Date Range</label>
-              <div className="groups-date-buttons">
-                <button
-                  className={`groups-date-btn ${dateRange === 'all' ? 'active' : ''}`}
-                  onClick={() => setDateRange('all')}
-                >
-                  All
-                </button>
-                <button
-                  className={`groups-date-btn ${dateRange === 'today' ? 'active' : ''}`}
-                  onClick={() => setDateRange('today')}
-                >
-                  Today
-                </button>
-                <button
-                  className={`groups-date-btn ${dateRange === 'week' ? 'active' : ''}`}
-                  onClick={() => setDateRange('week')}
-                >
-                  Last 7 Days
-                </button>
-                <button
-                  className={`groups-date-btn ${dateRange === 'month' ? 'active' : ''}`}
-                  onClick={() => setDateRange('month')}
-                >
-                  Last 30 Days
-                </button>
-                <button
-                  className={`groups-date-btn ${dateRange === 'custom' ? 'active' : ''}`}
-                  onClick={() => setDateRange('custom')}
-                >
-                  Custom
-                </button>
-              </div>
-            </div>
-
-            {dateRange === 'custom' && (
-              <div className="groups-date-range">
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="groups-date-input"
-                  placeholder="Start Date"
-                />
-                <span>to</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="groups-date-input"
-                  placeholder="End Date"
-                />
-              </div>
-            )}
-          </div>
-
-          {(searchTerm || minMembers || maxMembers || dateRange !== 'all' || sortBy !== 'createdAt' || sortOrder !== 'desc') && (
+          {(searchInput || statusFilter !== 'ALL' || filters.hasReports) && (
             <div className="groups-active-filters">
               <button className="groups-clear-filters" onClick={clearFilters}>
-                Clear All Filters
+                Clear Filters
               </button>
             </div>
           )}
         </div>
 
         {/* Error Display */}
-        {error && <ErrorDisplay message={error} />}
+        {error && <ErrorDisplay message={error} onRetry={handleRefresh} />}
 
-        {/* Groups Table */}
+        {/* Groups Table or Empty State */}
         {groups.length === 0 ? (
           <div className="groups-empty">
             <div className="groups-empty-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <circle cx="12" cy="8" r="4" />
                 <path d="M5.5 20v-2a5 5 0 0 1 10 0v2" />
-                <path d="M20 12h-4" />
-                <path d="M16 8h4" />
-                <path d="M20 4h-4" />
+                <path d="M20 12h-4M16 8h4M20 4h-4" />
               </svg>
             </div>
             <h3 className="groups-empty-title">No groups found</h3>
             <p className="groups-empty-message">
-              {searchTerm || minMembers || maxMembers || dateRange !== 'all'
+              {searchInput || statusFilter !== 'ALL' || filters.hasReports
                 ? "No groups match your current filters. Try adjusting your search."
                 : "There are no groups available yet."}
             </p>
-            {(searchTerm || minMembers || maxMembers || dateRange !== 'all') && (
+            {(searchInput || statusFilter !== 'ALL' || filters.hasReports) && (
               <button className="groups-empty-btn" onClick={clearFilters}>
                 Clear Filters
               </button>
@@ -604,6 +631,12 @@ const AdminGroups = () => {
           </div>
         ) : (
           <>
+            {/* Results Summary */}
+            <div className="groups-results-summary">
+              <span>Showing {groups.length} of {pagination.total} groups</span>
+            </div>
+
+            {/* Groups Table */}
             <div className="groups-table-container">
               <table className="groups-table">
                 <thead>
@@ -612,23 +645,23 @@ const AdminGroups = () => {
                     <th>Members</th>
                     <th>Tasks</th>
                     <th>Reports</th>
+                    <th>Status</th>
                     <th>Created</th>
-                    <th>Rotation</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {groups.map((group) => {
-                    // Check if group is soft-deleted
-                    const isSoftDeleted = group.name.startsWith('[DELETED]');
-                    // Check if delete is allowed based on thresholds
-                    const deleteAllowed = canDeleteGroup(group);
+                    const isDeleted = AdminGroupsService.isGroupDeleted(group);
+                    const isSuspended = AdminGroupsService.isGroupSuspended(group);
+                    const groupWithAnalysis = group as GroupWithAnalysis;
+                    const reportAnalysis = groupWithAnalysis.reportAnalysis;
                     
                     return (
-                      <tr 
-                        key={group.id} 
+                      <tr
+                        key={group.id}
                         onClick={() => handleRowClick(group.id)}
-                        className={`groups-row ${selectedRowId === group.id ? 'selected' : ''} ${isSoftDeleted ? 'deleted' : ''}`}
+                        className={`groups-row ${selectedRowId === group.id ? 'selected' : ''} ${isDeleted ? 'deleted' : ''} ${isSuspended ? 'suspended' : ''}`}
                       >
                         <td>
                           <div className="groups-user-info">
@@ -636,13 +669,14 @@ const AdminGroups = () => {
                               {group.avatarUrl ? (
                                 <img src={group.avatarUrl} alt={group.name} />
                               ) : (
-                                <span>{isSoftDeleted ? '🗑️' : group.name.charAt(0).toUpperCase()}</span>
+                                <span>{isDeleted ? '🗑️' : isSuspended ? '⚠️' : group.name?.charAt(0).toUpperCase() || 'G'}</span>
                               )}
                             </div>
                             <div>
                               <div className="groups-user-name">
                                 {group.name}
-                                {isSoftDeleted && <span className="deleted-badge">Deleted</span>}
+                                {isDeleted && <span className="deleted-badge">Deleted</span>}
+                                {isSuspended && <span className="suspended-badge">Suspended</span>}
                               </div>
                               <div className="groups-user-email">ID: {group.id.slice(0, 8)}...</div>
                               {group.description && (
@@ -653,35 +687,35 @@ const AdminGroups = () => {
                         </td>
                         <td>
                           <span className="groups-type-badge members">
-                            <span>👥</span>
+                            <FontAwesomeIcon icon={faUsers} />
                             {group._count?.members || 0}
                           </span>
                         </td>
                         <td>
                           <span className="groups-type-badge tasks">
-                            <span>📋</span>
+                            <FontAwesomeIcon icon={faTasks} />
                             {group._count?.tasks || 0}
                           </span>
                         </td>
                         <td>
                           <div className="reports-cell">
                             <span className={`groups-type-badge reports ${(group._count?.reports || 0) > 0 ? 'warning' : ''}`}>
-                              <span>🚩</span>
+                              <FontAwesomeIcon icon={faFlag} />
                               {group._count?.reports || 0}
                             </span>
-                            {group.reportAnalysis?.requiresImmediateAction && (
+                            {reportAnalysis?.requiresImmediateAction && (
                               <button
                                 className="report-warning-btn"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleAnalyzeReports(group.id);
                                 }}
-                                title="Reports require attention"
+                                title="Reports require immediate attention"
                               >
                                 <FontAwesomeIcon icon={faExclamationTriangle} style={{ color: '#fa5252' }} />
                               </button>
                             )}
-                            {(group._count?.reports || 0) > 0 && !group.reportAnalysis?.requiresImmediateAction && (
+                            {(group._count?.reports || 0) > 0 && !reportAnalysis?.requiresImmediateAction && (
                               <button
                                 className="report-info-btn"
                                 onClick={(e) => {
@@ -696,19 +730,14 @@ const AdminGroups = () => {
                           </div>
                         </td>
                         <td>
+                          <span className={`status-badge ${group.status?.toLowerCase() || 'active'}`}>
+                            {group.status || 'ACTIVE'}
+                          </span>
+                        </td>
+                        <td>
                           <div className="groups-date">
                             <span className="groups-date-icon">📅</span>
                             {formatDate(group.createdAt)}
-                          </div>
-                        </td>
-                        <td>
-                          <div className="groups-rotation">
-                            <span className="rotation-week">Week {group.currentRotationWeek}</span>
-                            {group.lastRotationUpdate && (
-                              <span className="rotation-date">
-                                {new Date(group.lastRotationUpdate).toLocaleDateString()}
-                              </span>
-                            )}
                           </div>
                         </td>
                         <td onClick={(e) => e.stopPropagation()}>
@@ -719,45 +748,38 @@ const AdminGroups = () => {
                                 e.stopPropagation();
                                 handleViewGroup(group.id);
                               }}
+                              disabled={loading}
                             >
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <circle cx="12" cy="12" r="3" />
-                                <path d="M22 12c-2.667 4.667-6 7-10 7s-7.333-2.333-10-7c2.667-4.667 6-7 10-7s7.333 2.333 10 7z" />
-                              </svg>
+                              <FontAwesomeIcon icon={faEye} />
                               <span>View</span>
                             </button>
-                            {isSoftDeleted ? ( 
-                              <button
-                                className="groups-restore-btn"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleRestore(group.id);
-                                }}
-                                title="Restore group"
-                              >
-                                <FontAwesomeIcon icon={faUndo} />
-                                <span>Restore</span>
-                              </button>
-                            ) : (
-                              <button
-                                className={`groups-delete-btn ${!deleteAllowed ? 'disabled' : ''}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (deleteAllowed) {
-                                    handleDeleteClick(e, group.id);
-                                  }
-                                }}
-                                disabled={!deleteAllowed}
-                                title={!deleteAllowed ? 'Need more reports to delete' : 'Delete group'}
-                              >
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <path d="M3 6h18" />
-                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-                                  <path d="M8 4V3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1" />
-                                </svg>
-                                <span>Delete</span>
-                              </button>
-                            )}
+
+                            {isDeleted ? (
+  <button
+    className="groups-restore-btn"
+    onClick={(e) => {
+      e.stopPropagation();
+      handleRestore(group.id);
+    }}
+    disabled={actionLoading}
+  >
+    <FontAwesomeIcon icon={faUndo} />
+    <span>Restore</span>
+  </button>
+) : (
+  // Only show delete button if it's NOT disabled
+  !isDeleteDisabled(groupWithAnalysis) && (
+    <button
+  className={`groups-delete-btn ${isDeleteDisabled(groupWithAnalysis) ? 'hidden' : ''}`}
+  onClick={(e) => handleDeleteClick(e, group.id)}
+  disabled={actionLoading || isDeleteDisabled(groupWithAnalysis)}
+  title="Delete group"
+>
+  <FontAwesomeIcon icon={faTrash} />
+  <span>Delete</span>
+</button>
+  )
+)}
                           </div>
                         </td>
                       </tr>
@@ -768,24 +790,24 @@ const AdminGroups = () => {
             </div>
 
             {/* Pagination */}
-            {pagination.pages > 1 && (
+            {totalPages > 1 && (
               <div className="groups-pagination">
                 <button
                   className="groups-pagination-btn"
-                  disabled={pagination.page === 1}
-                  onClick={() => handlePageChange(pagination.page - 1)}
+                  disabled={filters.page === 1 || loading}
+                  onClick={() => handlePageChange(filters.page - 1)}
                 >
-                  Previous
+                  <FontAwesomeIcon icon={faChevronLeft} />
                 </button>
                 <span className="groups-pagination-info">
-                  Page {pagination.page} of {pagination.pages}
+                  Page {filters.page} of {totalPages}
                 </span>
                 <button
                   className="groups-pagination-btn"
-                  disabled={pagination.page === pagination.pages}
-                  onClick={() => handlePageChange(pagination.page + 1)}
+                  disabled={filters.page === totalPages || loading}
+                  onClick={() => handlePageChange(filters.page + 1)}
                 >
-                  Next
+                  <FontAwesomeIcon icon={faChevronRight} />
                 </button>
               </div>
             )}
@@ -794,7 +816,7 @@ const AdminGroups = () => {
       </div>
 
       {/* Group Modal */}
-      {showModal && (
+      {showModal && selectedGroup && (
         <GroupModal
           isOpen={showModal}
           onClose={closeModal}
@@ -802,6 +824,8 @@ const AdminGroups = () => {
           loading={modalLoading}
           onDelete={handleDeleteConfirm}
           onRestore={handleRestore}
+          onApplyAction={handleApplyAction}
+          reportAnalysis={selectedAnalysis}
         />
       )}
 
@@ -809,23 +833,23 @@ const AdminGroups = () => {
       {showDeleteModal && (
         <div className="groups-delete-overlay" onClick={closeDeleteModal}>
           <div className="groups-delete-confirm" onClick={(e) => e.stopPropagation()}>
-            <p>Are you sure you want to delete this group?</p>
+            <p>Delete this group?</p>
             <div className="confirm-actions">
-              <button 
+              <button
                 className="confirm-soft"
                 onClick={() => handleDeleteConfirm(showDeleteModal, false)}
                 disabled={deleteLoading}
               >
                 {deleteLoading ? 'Deleting...' : 'Soft Delete'}
               </button>
-              <button 
+              <button
                 className="confirm-hard"
                 onClick={() => handleDeleteConfirm(showDeleteModal, true)}
                 disabled={deleteLoading}
               >
                 {deleteLoading ? 'Deleting...' : 'Hard Delete'}
               </button>
-              <button 
+              <button
                 className="confirm-cancel"
                 onClick={closeDeleteModal}
                 disabled={deleteLoading}
@@ -844,11 +868,11 @@ const AdminGroups = () => {
             <div className="modal-header">
               <h2>
                 <FontAwesomeIcon icon={faFlag} style={{ marginRight: '8px' }} />
-                Report Analysis - {selectedAnalysis.groupName}
+                Report Analysis — {selectedAnalysis.groupName}
               </h2>
               <button className="modal-close" onClick={closeReportModal}>×</button>
             </div>
-            
+
             <div className="modal-body">
               <div className="analysis-summary">
                 <div className="summary-stat">
@@ -873,9 +897,9 @@ const AdminGroups = () => {
                         <span className="report-type-count">{type.count}/{type.threshold}</span>
                       </div>
                       <div className="report-type-progress">
-                        <div 
+                        <div
                           className="progress-bar"
-                          style={{ 
+                          style={{
                             width: `${Math.min((type.count / type.threshold) * 100, 100)}%`,
                             backgroundColor: type.meetsThreshold ? '#fa5252' : '#e67700'
                           }}
@@ -884,7 +908,7 @@ const AdminGroups = () => {
                       {type.meetsThreshold && (
                         <div className="threshold-message">
                           <FontAwesomeIcon icon={faExclamationTriangle} />
-                          <span>{type.message}</span>
+                          <span>Threshold met!</span>
                         </div>
                       )}
                     </div>
@@ -892,59 +916,47 @@ const AdminGroups = () => {
                 </div>
               </div>
 
-              {selectedAnalysis.suggestedActions.length > 0 && (
+              {selectedAnalysis.availableActions.length > 0 && (
                 <div className="suggested-actions-section">
-                  <h3>Suggested Actions</h3>
+                  <h3>Available Actions</h3>
                   <div className="suggested-actions-list">
-                    {selectedAnalysis.suggestedActions.map((action, index) => {
-                      // Check if ANY report type for this action meets threshold
-                      const canApply = action.reportTypes.some(type => {
-                        const typeData = selectedAnalysis.reportTypes.find(t => t.type === type);
-                        return typeData?.meetsThreshold === true;
-                      });
-
-                      // Check if this is a soft-deleted group (for RESTORE action)
-                      const isSoftDeleted = selectedAnalysis.groupName.startsWith('[DELETED]');
+                    {selectedAnalysis.availableActions.map((action, index) => {
+                      const buttonConfig = ACTION_BUTTONS[action.action];
                       
-                      // Only show RESTORE if group is soft-deleted
-                      if (action.action === 'RESTORE' && !isSoftDeleted) {
-                        return null;
-                      }
-
-                      // Get threshold info for display
-                      const thresholdInfo = action.reportTypes.map(type => {
-                        const typeData = selectedAnalysis.reportTypes.find(t => t.type === type);
-                        const meetsThreshold = typeData?.meetsThreshold ? '✅' : '❌';
-                        return `${meetsThreshold} ${type.replace(/_/g, ' ')}: ${typeData?.count || 0}/${typeData?.threshold || 0}`;
-                      }).join(' · ');
-
                       return (
                         <div key={index} className={`suggested-action-item severity-${action.severity.toLowerCase()}`}>
                           <div className="action-header">
-                            <FontAwesomeIcon 
-                              icon={ACTION_ICONS[action.action as ActionType] || faInfoCircle}
-                              style={{ color: ACTION_COLORS[action.action as ActionType] || '#868e96' }}
-                            />
-                            <span className="action-name">{ACTION_NAMES[action.action as ActionType] || action.action.replace(/_/g, ' ')}</span>
+                            <span className="action-icon">{buttonConfig.icon}</span>
+                            <span className="action-name">{buttonConfig.label}</span>
                             <span className={`severity-badge severity-${action.severity.toLowerCase()}`}>
                               {action.severity}
                             </span>
                           </div>
-                          
                           <p className="action-reason">{action.reason}</p>
-                          
-                          <div className="threshold-info">
-                            <small>{thresholdInfo}</small>
+                          <div className="action-types">
+                            {action.reportTypes.map((type, i) => (
+                              <span key={i} className="action-type-tag">
+                                {type.replace(/_/g, ' ')}
+                              </span>
+                            ))}
                           </div>
-
-                          <button
-                            className={`apply-action-btn ${!canApply ? 'disabled' : ''} ${action.action.toLowerCase()}`}
-                            onClick={() => handleApplyAction(action.action)}
-                            disabled={!canApply || applyingAction}
-                            title={!canApply ? 'Threshold not met for this action' : `Apply ${ACTION_NAMES[action.action as ActionType]}`}
-                          >
-                            {applyingAction ? 'Applying...' : `Apply ${ACTION_NAMES[action.action as ActionType] || action.action.replace(/_/g, ' ')}`}
-                          </button>
+                   <button
+  className={`apply-action-btn ${!action.canExecute ? 'disabled' : ''}`}
+  onClick={() => {
+    if (selectedAnalysis) {
+      handleApplyAction(selectedAnalysis.groupId, action.action);
+    }
+  }}
+  disabled={!action.canExecute || actionLoading}
+  style={{
+    backgroundColor: action.canExecute ? buttonConfig.hoverColor : '#cccccc',
+    color: action.canExecute ? 'white' : '#666666',
+    cursor: !action.canExecute || actionLoading ? 'not-allowed' : 'pointer',
+    opacity: !action.canExecute || actionLoading ? 0.5 : 1
+  }}
+>
+  {actionLoading ? 'Applying...' : `Apply ${buttonConfig.label}`}
+</button>
                         </div>
                       );
                     })}
@@ -954,9 +966,7 @@ const AdminGroups = () => {
             </div>
 
             <div className="modal-footer">
-              <button className="modal-close-btn" onClick={closeReportModal}>
-                Close
-              </button>
+              <button className="modal-close-btn" onClick={closeReportModal}>Close</button>
             </div>
           </div>
         </div>

@@ -1425,7 +1425,12 @@
   transform: none;
   box-shadow: none;
 }
-
+/* Add to AdminGroups.css */
+.groups-delete-btn.hidden {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
 .groups-delete-btn.disabled svg {
   stroke: #adb5bd !important;
 }
