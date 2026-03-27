@@ -17,7 +17,7 @@ export function useAdminGroups() {
   console.log('🏭 [useAdminGroups] Hook initializing');
   
   const [groups, setGroups] = useState<Group[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); 
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<GroupStatisticsResponse['statistics'] | null>(null);
   const [pagination, setPagination] = useState({
