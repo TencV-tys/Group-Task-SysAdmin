@@ -1,4 +1,3 @@
-// pages/Notifications.tsx
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAdminNotifications } from '../hooks/useAdminNotifications';
@@ -15,101 +14,76 @@ const Notifications = () => {
     error,
     unreadCount,
     pagination,
-    fetchNotifications,
     markAsRead,
     markAllAsRead, 
     deleteNotification,
     deleteAllRead,
-    refreshNotifications // This is now silentRefresh
+    refreshNotifications,
+    updateFilters,
+    currentFilters
   } = useAdminNotifications();
 
-  const [filter, setFilter] = useState<'all' | 'unread' | 'read'>('all');
-  const [debouncedFilter, setDebouncedFilter] = useState<'all' | 'unread' | 'read'>('all');
+  // Initialize state with safe defaults
+  const [filter, setFilter] = useState<'all' | 'unread' | 'read'>(
+    currentFilters?.read === undefined ? 'all' : currentFilters.read ? 'read' : 'unread'
+  );
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectAll, setSelectAll] = useState(false);
-  const [initialLoad, setInitialLoad] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(currentFilters?.page || 1);
   
   // Refs
-  const fetchInProgress = useRef(false);
   const filterTimeoutRef = useRef<number|undefined>(undefined);
+  const isUpdatingRef = useRef(false);
 
-  // Debug logs
-  console.log('🔍 Loading states:', { 
-    loading, 
-    type: typeof loading,
-    value: loading ? 'true' : 'false'
-  });
-  console.log('📊 Notifications array:', notifications);
-  console.log('📈 Pagination:', pagination);
-
-  // Debounce filter changes
+  // Update filters when page or filter changes
   useEffect(() => {
+    if (isUpdatingRef.current) return;
+    
     if (filterTimeoutRef.current) {
       clearTimeout(filterTimeoutRef.current);
     }
 
     filterTimeoutRef.current = setTimeout(() => {
-      setDebouncedFilter(filter);
-      setCurrentPage(1);
-    }, 500);
+      const readFilter = filter === 'all' ? undefined : filter === 'read';
+      console.log('🔄 Applying filters:', { page: currentPage, read: readFilter });
+      
+      isUpdatingRef.current = true;
+      updateFilters({
+        page: currentPage,
+        limit: 10,
+        read: readFilter
+      });
+      
+      setTimeout(() => {
+        isUpdatingRef.current = false;
+      }, 500);
+    }, 300);
 
     return () => {
       if (filterTimeoutRef.current) {
         clearTimeout(filterTimeoutRef.current);
       }
     };
-  }, [filter]);
-
-  // Fetch notifications when page or debounced filter changes
-  useEffect(() => {
-    const loadNotifications = async () => {
-      if (fetchInProgress.current) return;
-      
-      fetchInProgress.current = true;
-      
-      try {
-        await fetchNotifications({ 
-          page: currentPage, 
-          limit: pagination.limit,
-          read: debouncedFilter === 'all' ? undefined : debouncedFilter === 'read'
-        });
-      } finally {
-        fetchInProgress.current = false;
-        setInitialLoad(false);
-      }
-    };
-    
-    loadNotifications();
-  }, [currentPage, pagination.limit, debouncedFilter, fetchNotifications]);
-
-  // Safety effect to reset if loading gets stuck (optional)
-  useEffect(() => {
-    let timeoutId: number;
-    
-    if (loading && !fetchInProgress.current && !initialLoad) {
-      timeoutId = setTimeout(() => {
-        console.log('⚠️ Loading stuck - forcing silent refresh');
-        refreshNotifications();
-      }, 10000);
-    }
-    
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [loading, refreshNotifications, initialLoad]);
+  }, [currentPage, filter, updateFilters]);
 
   const handleFilterChange = useCallback((newFilter: 'all' | 'unread' | 'read') => {
+    console.log('🔄 Filter changed to:', newFilter);
     setFilter(newFilter);
+    setCurrentPage(1);
+    // Clear selections when filter changes
+    setSelectedIds([]);
+    setSelectAll(false);
   }, []);
 
   const handlePageChange = useCallback((newPage: number) => {
-    if (newPage === currentPage || fetchInProgress.current || loading) return;
+    if (newPage === currentPage) return;
+    console.log('📄 Page changed to:', newPage);
     setCurrentPage(newPage);
-  }, [currentPage, loading]);
+    // Clear selections when page changes
+    setSelectedIds([]);
+    setSelectAll(false);
+  }, [currentPage]);
 
   const handleMarkAsRead = useCallback(async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -118,22 +92,19 @@ const Notifications = () => {
     if (processingId) return;
     
     setProcessingId(id);
-    try {
-      await markAsRead(id);
-    } finally {
-      setProcessingId(null);
-    }
+    await markAsRead(id);
+    setProcessingId(null);
   }, [markAsRead, processingId]);
 
   const handleMarkSelectedAsRead = useCallback(async () => {
-    if (fetchInProgress.current || selectedIds.length === 0) return;
+    if (selectedIds.length === 0 || processingId) return;
     
     for (const id of selectedIds) {
       await markAsRead(id);
     }
     setSelectedIds([]);
     setSelectAll(false);
-  }, [selectedIds, markAsRead]);
+  }, [selectedIds, markAsRead, processingId]);
 
   const handleDelete = useCallback(async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -143,19 +114,13 @@ const Notifications = () => {
     
     if (window.confirm('Are you sure you want to delete this notification?')) {
       setProcessingId(id);
-      try {
-        await deleteNotification(id);
-        if (notifications.length === 1 && currentPage > 1) {
-          setCurrentPage(prev => prev - 1);
-        }
-      } finally {
-        setProcessingId(null);
-      }
+      await deleteNotification(id);
+      setProcessingId(null);
     }
-  }, [deleteNotification, processingId, notifications.length, currentPage]);
+  }, [deleteNotification, processingId]);
 
   const handleDeleteSelected = useCallback(async () => {
-    if (selectedIds.length === 0) return;
+    if (selectedIds.length === 0 || processingId) return;
     
     if (window.confirm(`Are you sure you want to delete ${selectedIds.length} notifications?`)) {
       for (const id of selectedIds) {
@@ -163,30 +128,27 @@ const Notifications = () => {
       }
       setSelectedIds([]);
       setSelectAll(false);
-      
-      if (notifications.length === selectedIds.length && currentPage > 1) {
-        setCurrentPage(prev => prev - 1);
-      }
     }
-  }, [selectedIds, deleteNotification, notifications.length, currentPage]);
+  }, [selectedIds, deleteNotification, processingId]);
 
   const handleDeleteAllRead = useCallback(async () => {
     const readCount = notifications.filter(n => n.read).length;
-    if (readCount === 0) return;
+    if (readCount === 0 || processingId) return;
     
     if (window.confirm(`Are you sure you want to delete all ${readCount} read notifications?`)) {
       await deleteAllRead();
     }
-  }, [deleteAllRead, notifications]);
+  }, [deleteAllRead, notifications, processingId]);
 
   const handleSelectAll = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     e.stopPropagation();
     if (selectAll) {
       setSelectedIds([]);
+      setSelectAll(false);
     } else {
       setSelectedIds(notifications.map(n => n.id));
+      setSelectAll(true);
     }
-    setSelectAll(!selectAll);
   }, [selectAll, notifications]);
 
   const handleSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>, id: string) => {
@@ -203,15 +165,12 @@ const Notifications = () => {
   }, [notifications.length]);
 
   const handleNotificationClick = useCallback(async (notification: AdminNotification) => {
-    if (loading || processingId) return;
+    if (processingId) return;
     
     if (!notification.read) {
       setProcessingId(notification.id);
-      try {
-        await markAsRead(notification.id);
-      } finally {
-        setProcessingId(null);
-      }
+      await markAsRead(notification.id);
+      setProcessingId(null);
     }
 
     const { type, data } = notification;
@@ -227,7 +186,7 @@ const Notifications = () => {
         navigate('/admin/dashboard');
       }
     }, 100);
-  }, [markAsRead, navigate, loading, processingId]);
+  }, [markAsRead, navigate, processingId]);
 
   const formatDate = useCallback((dateString: string) => {
     const date = new Date(dateString);
@@ -286,12 +245,10 @@ const Notifications = () => {
   }, []);
 
   const clearFilters = useCallback(() => {
-    setFilter('all');
-    setDebouncedFilter('all');
-    setCurrentPage(1);
-  }, []);
+    handleFilterChange('all');
+  }, [handleFilterChange]);
 
-  if (initialLoad && loading && notifications.length === 0) {
+  if (loading && notifications.length === 0) {
     return <LoadingScreen message="Loading notifications..." fullScreen />;
   }
 
@@ -312,32 +269,32 @@ const Notifications = () => {
                 <button
                   className="notifications-btn notifications-btn-primary"
                   onClick={handleMarkSelectedAsRead}
-                  disabled={loading || fetchInProgress.current}
+                  disabled={processingId !== null}
                 >
-                  {loading ? 'Processing...' : `Mark ${selectedIds.length} as Read`}
+                  {processingId ? 'Processing...' : `Mark ${selectedIds.length} as Read`}
                 </button>
                 <button
                   className="notifications-btn notifications-btn-danger"
                   onClick={handleDeleteSelected}
-                  disabled={loading || fetchInProgress.current}
+                  disabled={processingId !== null}
                 >
-                  {loading ? 'Processing...' : `Delete ${selectedIds.length}`}
+                  {processingId ? 'Processing...' : `Delete ${selectedIds.length}`}
                 </button>
               </>
             )}
             <button
               className="notifications-btn notifications-btn-secondary"
               onClick={markAllAsRead}
-              disabled={unreadCount === 0 || loading || fetchInProgress.current}
+              disabled={unreadCount === 0 || processingId !== null}
             >
-              {loading ? 'Processing...' : 'Mark All as Read'}
+              {processingId ? 'Processing...' : 'Mark All as Read'}
             </button>
             <button
               className="notifications-btn notifications-btn-danger"
               onClick={handleDeleteAllRead}
-              disabled={notifications.filter(n => n.read).length === 0 || loading || fetchInProgress.current}
+              disabled={notifications.filter(n => n.read).length === 0 || processingId !== null}
             >
-              {loading ? 'Processing...' : 'Delete All Read'}
+              {processingId ? 'Processing...' : 'Delete All Read'}
             </button>
           </div>
         </div>
@@ -347,37 +304,31 @@ const Notifications = () => {
           <button
             className={`notifications-filter-btn ${filter === 'all' ? 'active' : ''}`}
             onClick={() => handleFilterChange('all')}
-            disabled={loading || fetchInProgress.current}
+            disabled={processingId !== null}
           >
             All
           </button>
           <button
             className={`notifications-filter-btn ${filter === 'unread' ? 'active' : ''}`}
             onClick={() => handleFilterChange('unread')}
-            disabled={loading || fetchInProgress.current}
+            disabled={processingId !== null}
           >
             Unread {unreadCount > 0 && `(${unreadCount})`}
           </button>
           <button
             className={`notifications-filter-btn ${filter === 'read' ? 'active' : ''}`}
             onClick={() => handleFilterChange('read')}
-            disabled={loading || fetchInProgress.current}
+            disabled={processingId !== null}
           >
             Read
           </button>
         </div>
 
         {/* Error Display */}
-        {error && <ErrorDisplay message={error} onRetry={() => {
-          fetchNotifications({ 
-            page: currentPage, 
-            limit: pagination.limit,
-            read: debouncedFilter === 'all' ? undefined : debouncedFilter === 'read'
-          });
-        }} />}
+        {error && <ErrorDisplay message={error} onRetry={refreshNotifications} />}
 
-        {/* Loading overlay for subsequent loads */}
-        {loading && !initialLoad && (
+        {/* Loading overlay */}
+        {loading && (
           <div className="notifications-loading-overlay">
             <div className="notifications-spinner"></div>
           </div>
@@ -407,19 +358,17 @@ const Notifications = () => {
         ) : notifications.length > 0 ? (
           <>
             {/* Select All */}
-            {notifications.length > 0 && (
-              <div className="notifications-select-all">
-                <label className="notifications-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={selectAll}
-                    onChange={handleSelectAll}
-                    disabled={loading || fetchInProgress.current}
-                  />
-                  <span>Select All ({notifications.length})</span>
-                </label>
-              </div>
-            )}
+            <div className="notifications-select-all">
+              <label className="notifications-checkbox">
+                <input
+                  type="checkbox"
+                  checked={selectAll}
+                  onChange={handleSelectAll}
+                  disabled={processingId !== null}
+                />
+                <span>Select All ({notifications.length})</span>
+              </label>
+            </div>
 
             {/* Notifications List */}
             <div className="notifications-list">
@@ -430,8 +379,8 @@ const Notifications = () => {
                 return (
                   <div
                     key={notification.id}
-                    className={`notifications-item ${!notification.read ? 'unread' : ''} ${loading || isProcessing || fetchInProgress.current ? 'disabled' : 'clickable'}`}
-                    onClick={() => !loading && !isProcessing && !fetchInProgress.current && handleNotificationClick(notification)}
+                    className={`notifications-item ${!notification.read ? 'unread' : ''} ${isProcessing ? 'disabled' : 'clickable'}`}
+                    onClick={() => !isProcessing && handleNotificationClick(notification)}
                   >
                     <div className="notifications-item-left" onClick={(e) => e.stopPropagation()}>
                       <label className="notifications-checkbox">
@@ -439,7 +388,7 @@ const Notifications = () => {
                           type="checkbox"
                           checked={selectedIds.includes(notification.id)}
                           onChange={(e) => handleSelect(e, notification.id)}
-                          disabled={loading || isProcessing || fetchInProgress.current}
+                          disabled={isProcessing}
                           onClick={(e) => e.stopPropagation()}
                         />
                       </label>
@@ -476,7 +425,7 @@ const Notifications = () => {
                           className="notifications-item-btn"
                           onClick={(e) => handleMarkAsRead(e, notification.id)}
                           title="Mark as read"
-                          disabled={loading || isProcessing || fetchInProgress.current}
+                          disabled={isProcessing}
                         >
                           ✓
                         </button>
@@ -485,7 +434,7 @@ const Notifications = () => {
                         className="notifications-item-btn delete"
                         onClick={(e) => handleDelete(e, notification.id)}
                         title="Delete"
-                        disabled={loading || isProcessing || fetchInProgress.current}
+                        disabled={isProcessing}
                       >
                         ×
                       </button>
@@ -500,7 +449,7 @@ const Notifications = () => {
               <div className="notifications-pagination">
                 <button
                   className="notifications-pagination-btn"
-                  disabled={currentPage === 1 || loading || fetchInProgress.current}
+                  disabled={currentPage === 1 || loading}
                   onClick={() => handlePageChange(currentPage - 1)}
                 >
                   Previous
@@ -513,7 +462,7 @@ const Notifications = () => {
                 </div>
                 <button
                   className="notifications-pagination-btn"
-                  disabled={currentPage === pagination.pages || loading || fetchInProgress.current}
+                  disabled={currentPage === pagination.pages || loading}
                   onClick={() => handlePageChange(currentPage + 1)}
                 >
                   Next
