@@ -1,5 +1,5 @@
-// pages/AdminAudit.tsx - WITH CLICKABLE STATS CARDS
-import React, { useState, useEffect } from 'react';
+// pages/AdminAudit.tsx - Fixed to show only top 3 action stat cards
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAdminAudit } from '../hooks/useAdminAudit';
 import AuditModal from '../components/AuditModal';
 import LoadingScreen from '../components/LoadingScreen';
@@ -30,24 +30,17 @@ const AdminAudit = () => {
   console.log('🏁 [AdminAudit] Component rendering');
   
   const {
-    logs,
+    logs: allLogs,
     loading,
     error,
-    stats,
     pagination,
     fetchLogs,
-    fetchStatistics,
     getLogById,
     setPagination,
   } = useAdminAudit(20);
 
-  console.log('📊 [AdminAudit] Hook data:', { 
-    logsCount: logs.length, 
-    loading, 
-    error,
-    stats: stats ? 'present' : 'null',
-    pagination 
-  });
+  // Client-side filtered logs
+  const [filteredLogs, setFilteredLogs] = useState<AuditLog[]>([]);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -57,6 +50,13 @@ const AdminAudit = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [initialLoad, setInitialLoad] = useState(true);
+  
+  // Separate state for stats (unfiltered by action)
+  const [dateRangeStats, setDateRangeStats] = useState<{ 
+    total: number; 
+    byAction: Array<{ action: string; count: number }> 
+  } | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
 
   // Modal
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
@@ -64,27 +64,66 @@ const AdminAudit = () => {
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
-  // ===== NEW: Handle stat card click =====
-  const handleStatClick = (action: string) => {
-    console.log('📊 [AdminAudit] Stat card clicked:', action);
-    setActionFilter(action);
-    setPagination(prev => ({ ...prev, page: 1 }));
-  };
+  // Helper to get date range params
+  const getDateRangeParams = useCallback(() => {
+    const params: { startDate?: string; endDate?: string } = {};
+    
+    const now = new Date();
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    
+    if (dateRange === 'today') {
+      const start = new Date(); start.setHours(0,0,0,0);
+      params.startDate = start.toISOString();
+      params.endDate = endOfDay.toISOString();
+    } else if (dateRange === 'week') {
+      const start = new Date(); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0);
+      params.startDate = start.toISOString();
+      params.endDate = endOfDay.toISOString();
+    } else if (dateRange === 'month') {
+      const start = new Date(); start.setDate(start.getDate() - 29); start.setHours(0,0,0,0);
+      params.startDate = start.toISOString();
+      params.endDate = endOfDay.toISOString();
+    } else if (dateRange === 'custom') {
+      if (startDate) {
+        const start = new Date(startDate); start.setHours(0,0,0,0);
+        params.startDate = start.toISOString();
+      }
+      if (endDate) {
+        const end = new Date(endDate); end.setHours(23,59,59,999);
+        params.endDate = end.toISOString();
+      }
+    }
+    
+    return params;
+  }, [dateRange, startDate, endDate]);
 
-  // Fetch logs when filters or pagination change
+  // Fetch stats for the date range (NOT filtered by action)
+  const fetchDateRangeStats = useCallback(async () => {
+    const dateParams = getDateRangeParams();
+    console.log('📊 [AdminAudit] Fetching stats for date range:', dateParams);
+    setStatsLoading(true);
+    
+    try {
+      const result = await AdminAuditService.getStatistics(dateParams);
+      console.log('📊 [AdminAudit] Stats result:', result);
+      if (result.success && result.statistics) {
+        setDateRangeStats({
+          total: result.statistics.total,
+          byAction: result.statistics.byAction || []
+        });
+      }
+    } catch (err) {
+      console.error('❌ [AdminAudit] Failed to fetch stats:', err);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [getDateRangeParams]);
+
+  // Fetch logs (sending action filter to backend now that backend is fixed)
   useEffect(() => {
-    console.log('🔍 [AdminAudit] Fetch logs useEffect triggered with:', {
-      page: pagination.page,
-      limit: pagination.limit,
-      searchTerm,
-      adminFilter,
-      actionFilter,
-      dateRange,
-      startDate,
-      endDate
-    });
-
     const fetchData = async () => {
+      const dateParams = getDateRangeParams();
+      
       const params: FetchParams = {
         limit: pagination.limit,
         offset: (pagination.page - 1) * pagination.limit,
@@ -92,38 +131,10 @@ const AdminAudit = () => {
 
       if (searchTerm) params.search = searchTerm;
       if (adminFilter) params.adminId = adminFilter;
+      // NOW SEND action filter to backend (backend is fixed)
       if (actionFilter) params.action = actionFilter;
-
-      // Date range logic
-      if (dateRange === 'today') {
-        const start = new Date(); start.setHours(0,0,0,0);
-        const end = new Date(); end.setHours(23,59,59,999);
-        params.startDate = start.toISOString();
-        params.endDate = end.toISOString();
-        console.log('📅 Today range:', { start: params.startDate, end: params.endDate });
-      } else if (dateRange === 'week') {
-        const end = new Date(); end.setHours(23,59,59,999);
-        const start = new Date(); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0);
-        params.startDate = start.toISOString();
-        params.endDate = end.toISOString();
-        console.log('📅 Week range:', { start: params.startDate, end: params.endDate });
-      } else if (dateRange === 'month') {
-        const end = new Date(); end.setHours(23,59,59,999);
-        const start = new Date(); start.setDate(start.getDate() - 29); start.setHours(0,0,0,0);
-        params.startDate = start.toISOString();
-        params.endDate = end.toISOString();
-        console.log('📅 Month range:', { start: params.startDate, end: params.endDate });
-      } else if (dateRange === 'custom') {
-        if (startDate) {
-          const start = new Date(startDate); start.setHours(0,0,0,0);
-          params.startDate = start.toISOString();
-        }
-        if (endDate) {
-          const end = new Date(endDate); end.setHours(23,59,59,999);
-          params.endDate = end.toISOString();
-        }
-        console.log('📅 Custom range:', { start: params.startDate, end: params.endDate });
-      }
+      if (dateParams.startDate) params.startDate = dateParams.startDate;
+      if (dateParams.endDate) params.endDate = dateParams.endDate;
 
       console.log('📤 [AdminAudit] Fetching logs with params:', params);
       await fetchLogs(params);
@@ -131,75 +142,79 @@ const AdminAudit = () => {
     };
 
     fetchData();
-  }, [pagination.page, pagination.limit, searchTerm, adminFilter, actionFilter, dateRange, startDate, endDate, fetchLogs]);
+  }, [pagination.page, pagination.limit, searchTerm, adminFilter, actionFilter, getDateRangeParams, fetchLogs]);
 
-  // Fetch statistics when date range changes
+  // Client-side filtering by action (fallback, but backend should handle it now)
   useEffect(() => {
-    console.log('📊 [AdminAudit] Fetch stats useEffect triggered with dateRange:', dateRange);
+    if (!allLogs) {
+      setFilteredLogs([]);
+      return;
+    }
+
+    let filtered = [...allLogs];
     
-    const statsParams: { startDate?: string; endDate?: string } = {};
-    
-    if (dateRange === 'today') {
-      const start = new Date(); start.setHours(0,0,0,0);
-      const end = new Date(); end.setHours(23,59,59,999);
-      statsParams.startDate = start.toISOString();
-      statsParams.endDate = end.toISOString();
-    } else if (dateRange === 'week') {
-      const end = new Date(); end.setHours(23,59,59,999);
-      const start = new Date(); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0);
-      statsParams.startDate = start.toISOString();
-      statsParams.endDate = end.toISOString();
-    } else if (dateRange === 'month') {
-      const end = new Date(); end.setHours(23,59,59,999);
-      const start = new Date(); start.setDate(start.getDate() - 29); start.setHours(0,0,0,0);
-      statsParams.startDate = start.toISOString();
-      statsParams.endDate = end.toISOString();
-    } else if (dateRange === 'custom') {
-      if (startDate) statsParams.startDate = startDate;
-      if (endDate) statsParams.endDate = endDate;
+    // Additional client-side filter if needed
+    if (actionFilter) {
+      filtered = filtered.filter(log => log.action === actionFilter);
+      console.log(`🔍 Client-side filter: showing ${filtered.length} logs with action "${actionFilter}" out of ${allLogs.length} total`);
     }
     
-    console.log('📤 [AdminAudit] Fetching stats with params:', statsParams);
-    fetchStatistics(statsParams).then(result => {
-      console.log('📥 [AdminAudit] Stats result:', result);
-    });
-  }, [dateRange, startDate, endDate, fetchStatistics]);
+    setFilteredLogs(filtered);
+  }, [allLogs, actionFilter]);
+
+  // Fetch stats when date range changes
+  useEffect(() => {
+    fetchDateRangeStats();
+  }, [dateRange, startDate, endDate, fetchDateRangeStats]);
+
+  // Handle stat card click
+  const handleStatClick = useCallback((action: string) => {
+    console.log('📊 [AdminAudit] Stat card clicked with action:', action);
+    
+    if (actionFilter === action && action !== '') {
+      setActionFilter('');
+    } else {
+      setActionFilter(action);
+    }
+    
+    setPagination(prev => ({ ...prev, page: 1 }));
+  }, [actionFilter, setPagination]);
+
+  const clearActionFilter = useCallback(() => {
+    setActionFilter('');
+    setPagination(prev => ({ ...prev, page: 1 }));
+  }, [setPagination]);
 
   const handleSearch = () => {
-    console.log('🔍 [AdminAudit] Search clicked, resetting to page 1');
     setPagination(prev => ({ ...prev, page: 1 }));
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-      console.log('↵ [AdminAudit] Enter key pressed');
       handleSearch();
     }
   };
 
   const handlePageChange = (newPage: number) => {
-    console.log('📄 [AdminAudit] Page changing to:', newPage);
+    if (newPage === pagination.page) return;
     setPagination(prev => ({ ...prev, page: newPage }));
   };
 
   const handleViewLog = async (logId: string) => {
-    console.log('👁️ [AdminAudit] Viewing log:', logId);
     setSelectedRowId(logId);
     setModalLoading(true);
     setShowModal(true);
 
     try {
       const result = await getLogById(logId);
-      console.log('📦 [AdminAudit] Log details result:', result);
       if (result.success && result.log) {
         setSelectedLog(result.log);
       } else {
-        console.error('❌ [AdminAudit] Failed to load log:', result.message);
         setShowModal(false);
         setSelectedLog(null);
       }
     } catch (error) { 
-      console.error('❌ [AdminAudit] Error loading audit log:', error);
+      console.error(error)
       setShowModal(false);
       setSelectedLog(null);
     } finally {
@@ -213,22 +228,19 @@ const AdminAudit = () => {
   };
 
   const handleExport = async (format: 'json' | 'csv') => {
-    console.log('📥 [AdminAudit] Exporting as:', format);
     try {
+      const dateParams = getDateRangeParams();
       const filterParams: ExportFilterParams = {};
+      
       if (searchTerm) filterParams.search = searchTerm;
       if (adminFilter) filterParams.adminId = adminFilter;
       if (actionFilter) filterParams.action = actionFilter;
-      if (dateRange === 'custom') {
-        if (startDate) filterParams.startDate = startDate;
-        if (endDate) filterParams.endDate = endDate;
-      }
-      console.log('📤 [AdminAudit] Export params:', filterParams);
-
+      if (dateParams.startDate) filterParams.startDate = dateParams.startDate;
+      if (dateParams.endDate) filterParams.endDate = dateParams.endDate;
+      
       const result = await AdminAuditService.exportLogs(format, filterParams);
 
       if (format === 'csv' && typeof result === 'string') {
-        console.log('✅ [AdminAudit] CSV export successful');
         const blob = new Blob([result], { type: 'text/csv' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -237,7 +249,6 @@ const AdminAudit = () => {
         a.click();
         window.URL.revokeObjectURL(url);
       } else if (typeof result === 'object' && result !== null && 'success' in result) {
-        console.log('✅ [AdminAudit] JSON export successful');
         const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -252,13 +263,11 @@ const AdminAudit = () => {
   };
 
   const closeModal = () => {
-    console.log('🚪 [AdminAudit] Closing modal');
     setShowModal(false);
     setTimeout(() => setSelectedLog(null), 300);
   };
 
   const clearFilters = () => {
-    console.log('🧹 [AdminAudit] Clearing all filters');
     setSearchTerm('');
     setAdminFilter('');
     setActionFilter('');
@@ -308,12 +317,28 @@ const AdminAudit = () => {
     return 'other';
   };
 
-  if (initialLoad && loading && logs.length === 0) {
-    console.log('⏳ [AdminAudit] Showing loading screen');
+  const formatActionLabel = (action: string): string => {
+    return action
+      .toLowerCase()
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, char => char.toUpperCase());
+  };
+
+  if (initialLoad && loading && allLogs.length === 0) {
     return <LoadingScreen message="Loading audit logs..." fullScreen />;
   }
 
-  console.log('🎨 [AdminAudit] Rendering with stats:', stats);
+  // Get top 3 actions from dateRangeStats (sorted by count, highest first)
+  // This will automatically show the 3 most frequent actions (ADMIN_VIEW_AUDIT_LOGS, ADMIN_VIEW_AUDIT_STATISTICS, etc.)
+  const topActions = dateRangeStats?.byAction
+    ?.sort((a, b) => b.count - a.count)
+    .slice(0, 3) || [];
+
+  console.log('📊 [AdminAudit] Top 3 actions for cards:', topActions);
+
+  // Use filtered logs for display
+  const displayLogs = filteredLogs;
+  const displayTotal = filteredLogs.length;
 
   return (
     <div className="audit-wrapper">
@@ -325,6 +350,13 @@ const AdminAudit = () => {
             <p>Track all admin actions and system events</p>
           </div>
           <div className="audit-header-actions">
+            <button 
+    className="audit-clear-all-btn" 
+    onClick={clearFilters}
+    disabled={loading}
+  >
+    Clear All Filters
+  </button>
             <div className="audit-export-dropdown">
               <button className="audit-export-btn">
                 <span>📥</span>
@@ -338,53 +370,63 @@ const AdminAudit = () => {
           </div>
         </div>
 
-        {/* Stats Cards - NOW CLICKABLE */}
-        {stats && (
+        {/* Stats Cards - Shows ONLY 3 cards (Total + Top 2 Actions = 3 cards total) */}
+        {dateRangeStats && (
           <div className="audit-stats">
-            {/* Total Logs Card - Click to clear action filter */}
+            {/* Total Logs Card */}
             <div 
               className={`audit-stat-card ${actionFilter === '' ? 'active' : ''}`}
               onClick={() => handleStatClick('')}
               style={{ cursor: 'pointer' }}
             >
-              <span className="audit-stat-value">{stats.total}</span>
+              <span className="audit-stat-value">{dateRangeStats.total}</span>
               <span className="audit-stat-label">Total Logs</span>
               {actionFilter === '' && <div className="stat-active-indicator" />}
             </div>
 
-            {/* Action Cards - Show top actions */}
-            {stats.byAction?.slice(0, 3).map((action) => (
+            {/* Top Action Cards - Shows top 2 actions (so total cards = 3) */}
+            {topActions.slice(0, 2).map((actionStat) => (
               <div 
-                key={action.action}
-                className={`audit-stat-card ${actionFilter === action.action ? 'active' : ''}`}
-                onClick={() => handleStatClick(action.action)}
+                key={actionStat.action}
+                className={`audit-stat-card ${actionFilter === actionStat.action ? 'active' : ''}`}
+                onClick={() => handleStatClick(actionStat.action)}
                 style={{ cursor: 'pointer' }}
               >
-                <span className="audit-stat-value">{action.count}</span>
-                <span className="audit-stat-label">{action.action.replace(/_/g, ' ')}</span>
-                {actionFilter === action.action && <div className="stat-active-indicator" />}
+                <span className="audit-stat-value">{actionStat.count}</span>
+                <span className="audit-stat-label">{formatActionLabel(actionStat.action)}</span>
+                {actionFilter === actionStat.action && <div className="stat-active-indicator" />}
               </div>
             ))}
-
-            {/* If less than 3 actions, add placeholder for unique actions */}
-            {stats.byAction && stats.byAction.length < 3 && (
-              <div className="audit-stat-card">
-                <span className="audit-stat-value">{stats.byAction.length}</span>
-                <span className="audit-stat-label">Unique Actions</span>
-              </div>
-            )}
           </div>
+        )}
+
+        {/* Stats Loading */}
+        {statsLoading && !dateRangeStats && (
+          <div className="audit-stats-loading">Loading stats...</div>
         )}
 
         {/* Active Filter Indicator */}
         {actionFilter && (
           <div className="audit-active-filter">
-            <span>Filtering by action: <strong>{actionFilter.replace(/_/g, ' ')}</strong></span>
+            <span>Filtering by action: <strong>{formatActionLabel(actionFilter)}</strong> ({displayTotal} logs)</span>
+            <button className="audit-clear-filter-btn" onClick={clearActionFilter}>
+              Clear Filter
+            </button>
+          </div>
+        )}
+
+        {/* Active Admin Filter Indicator */}
+        {adminFilter && (
+          <div className="audit-active-filter audit-active-filter-admin">
+            <span>Filtering by Admin ID: <strong>{adminFilter}</strong></span>
             <button 
               className="audit-clear-filter-btn"
-              onClick={() => handleStatClick('')}
+              onClick={() => {
+                setAdminFilter('');
+                setPagination(prev => ({ ...prev, page: 1 }));
+              }}
             >
-              Clear Filter
+              Clear
             </button>
           </div>
         )}
@@ -412,106 +454,35 @@ const AdminAudit = () => {
           </div>
 
           <div className="audit-filter-group">
-            <button
-              className={`audit-filter-btn ${dateRange === 'today' ? 'active' : ''}`}
-              onClick={() => {
-                console.log('📅 [AdminAudit] Date range changed to: today');
-                setDateRange('today');
-              }}
-            >
-              Today
-            </button>
-            <button
-              className={`audit-filter-btn ${dateRange === 'week' ? 'active' : ''}`}
-              onClick={() => {
-                console.log('📅 [AdminAudit] Date range changed to: week');
-                setDateRange('week');
-              }}
-            >
-              Last 7 Days
-            </button>
-            <button
-              className={`audit-filter-btn ${dateRange === 'month' ? 'active' : ''}`}
-              onClick={() => {
-                console.log('📅 [AdminAudit] Date range changed to: month');
-                setDateRange('month');
-              }}
-            >
-              Last 30 Days
-            </button>
-            <button
-              className={`audit-filter-btn ${dateRange === 'custom' ? 'active' : ''}`}
-              onClick={() => {
-                console.log('📅 [AdminAudit] Date range changed to: custom');
-                setDateRange('custom');
-              }}
-            >
-              Custom
-            </button>
+            <button className={`audit-filter-btn ${dateRange === 'today' ? 'active' : ''}`} onClick={() => setDateRange('today')}>Today</button>
+            <button className={`audit-filter-btn ${dateRange === 'week' ? 'active' : ''}`} onClick={() => setDateRange('week')}>Last 7 Days</button>
+            <button className={`audit-filter-btn ${dateRange === 'month' ? 'active' : ''}`} onClick={() => setDateRange('month')}>Last 30 Days</button>
+            <button className={`audit-filter-btn ${dateRange === 'custom' ? 'active' : ''}`} onClick={() => setDateRange('custom')}>Custom</button>
           </div>
 
           {dateRange === 'custom' && (
             <div className="audit-date-range">
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => {
-                  console.log('📅 [AdminAudit] Start date changed:', e.target.value);
-                  setStartDate(e.target.value);
-                }}
-                className="audit-date-input"
-                placeholder="Start Date"
-              />
+              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="audit-date-input" />
               <span>to</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => {
-                  console.log('📅 [AdminAudit] End date changed:', e.target.value);
-                  setEndDate(e.target.value);
-                }}
-                className="audit-date-input"
-                placeholder="End Date"
-              />
+              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="audit-date-input" />
             </div>
           )}
 
           <div className="audit-filter-inputs">
-            <input
-              type="text"
-              placeholder="Filter by Admin ID"
-              value={adminFilter}
-              onChange={(e) => {
-                console.log('👤 [AdminAudit] Admin filter changed:', e.target.value);
-                setAdminFilter(e.target.value);
-              }}
-              className="audit-filter-input"
-            />
-            <input
-              type="text"
-              placeholder="Filter by Action"
-              value={actionFilter}
-              onChange={(e) => {
-                console.log('🎬 [AdminAudit] Action filter changed:', e.target.value);
-                setActionFilter(e.target.value);
-              }}
-              className="audit-filter-input"
-            />
+            <input type="text" placeholder="Filter by Admin ID" value={adminFilter} onChange={(e) => setAdminFilter(e.target.value)} className="audit-filter-input" />
+            <input type="text" placeholder="Filter by Action" value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} className="audit-filter-input" />
           </div>
         </div>
 
-        {/* Error Display */}
         {error && <ErrorDisplay message={error} />}
 
-        {/* Loading overlay for subsequent loads */}
         {loading && !initialLoad && (
           <div className="audit-loading-overlay">
             <div className="audit-loading-spinner"></div>
           </div>
         )}
 
-        {/* Audit Table or Empty State */}
-        {logs.length === 0 && !loading ? (
+        {displayLogs.length === 0 && !loading ? (
           <div className="audit-empty">
             <div className="audit-empty-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -520,19 +491,14 @@ const AdminAudit = () => {
             </div>
             <h3 className="audit-empty-title">No audit logs found</h3>
             <p className="audit-empty-message">
-              {searchTerm || adminFilter || actionFilter || dateRange !== 'week'
-                ? "No logs match your current filters. Try adjusting your search."
-                : "There are no audit logs available yet."}
+              {actionFilter ? `No logs found with action "${formatActionLabel(actionFilter)}".` : "No logs match your current filters."}
             </p>
-            {(searchTerm || adminFilter || actionFilter || dateRange !== 'week') && (
-              <button className="audit-empty-btn" onClick={clearFilters}>
-                Clear Filters
-              </button>
+            {actionFilter && (
+              <button className="audit-empty-btn" onClick={clearActionFilter}>Clear Action Filter</button>
             )}
           </div>
         ) : (
           <>
-            {/* Audit Table */}
             <div className="audit-table-container">
               <table className="audit-table">
                 <thead>
@@ -546,13 +512,8 @@ const AdminAudit = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {logs.map((log) => (
-                    <tr 
-                      key={log.id} 
-                      onClick={() => handleRowClick(log.id)}
-                      className={`audit-row ${selectedRowId === log.id ? 'selected' : ''}`}
-                      style={{ cursor: 'pointer' }}
-                    >
+                  {displayLogs.map((log) => (
+                    <tr key={log.id} onClick={() => handleRowClick(log.id)} className={`audit-row ${selectedRowId === log.id ? 'selected' : ''}`} style={{ cursor: 'pointer' }}>
                       <td>
                         <div className="audit-timestamp">
                           <span className="audit-timestamp-icon">🕒</span>
@@ -600,14 +561,7 @@ const AdminAudit = () => {
                         ) : '-'}
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
-                        <button
-                          className="audit-view-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleViewLog(log.id);
-                          }}
-                          disabled={modalLoading}
-                        >
+                        <button className="audit-view-btn" onClick={(e) => { e.stopPropagation(); handleViewLog(log.id); }} disabled={modalLoading}>
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <circle cx="12" cy="12" r="3" />
                             <path d="M22 12c-2.667 4.667-6 7-10 7s-7.333-2.333-10-7c2.667-4.667 6-7 10-7s7.333 2.333 10 7z" />
@@ -621,41 +575,18 @@ const AdminAudit = () => {
               </table>
             </div>
 
-            {/* Pagination */}
             {pagination.pages > 1 && (
               <div className="audit-pagination">
-                <button
-                  className="audit-pagination-btn"
-                  disabled={pagination.page === 1 || loading}
-                  onClick={() => handlePageChange(pagination.page - 1)}
-                >
-                  Previous
-                </button>
-                <span className="audit-pagination-info">
-                  Page {pagination.page} of {pagination.pages}
-                </span>
-                <button
-                  className="audit-pagination-btn"
-                  disabled={pagination.page === pagination.pages || loading}
-                  onClick={() => handlePageChange(pagination.page + 1)}
-                >
-                  Next
-                </button>
+                <button className="audit-pagination-btn" disabled={pagination.page === 1 || loading} onClick={() => handlePageChange(pagination.page - 1)}>Previous</button>
+                <span className="audit-pagination-info">Page {pagination.page} of {pagination.pages}</span>
+                <button className="audit-pagination-btn" disabled={pagination.page === pagination.pages || loading} onClick={() => handlePageChange(pagination.page + 1)}>Next</button>
               </div>
             )}
           </>
         )}
       </div>
 
-      {/* Audit Modal */}
-      {showModal && (
-        <AuditModal
-          isOpen={showModal}
-          onClose={closeModal}
-          log={selectedLog}
-          loading={modalLoading}
-        />
-      )}
+      {showModal && <AuditModal isOpen={showModal} onClose={closeModal} log={selectedLog} loading={modalLoading} />}
     </div>
   );
 };

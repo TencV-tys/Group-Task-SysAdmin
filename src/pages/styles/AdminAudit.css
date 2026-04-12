@@ -10,6 +10,39 @@
   padding: 32px;
   width: 100%;
 }
+
+/* Clear All Filters Button */
+.audit-clear-all-btn {
+  padding: 10px 20px;
+  background: white;
+  border: 1px solid #dc3545;
+  border-radius: 8px;
+  color: #dc3545;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.audit-clear-all-btn:hover {
+  background: #dc3545;
+  border-color: #dc3545;
+  color: white;
+}
+
+.audit-clear-all-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Optional: Add an icon before the text */
+.audit-clear-all-btn::before {
+  content: "🗑️";
+  font-size: 14px;
+}
 /* Add to AdminAudit.css */
 
 /* Active stat card */
