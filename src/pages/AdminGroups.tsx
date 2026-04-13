@@ -1,4 +1,4 @@
-// pages/AdminGroups.tsx - COMPLETE FIXED WITH ALL TYPES
+// pages/AdminGroups.tsx - COMPLETE WITH REAL-TIME UPDATES
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAdminGroups } from '../hooks/useAdminGroups';
 import { AdminGroupsService, ACTION_BUTTONS, GroupStatus } from '../services/admin.groups.service';
@@ -12,6 +12,7 @@ import type {
 import GroupModal from '../components/GroupModal';
 import LoadingScreen from '../components/LoadingScreen';
 import ErrorDisplay from '../components/ErrorDisplay';
+import { adminSocket } from '../services/adminSocket';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faExclamationTriangle,
@@ -25,6 +26,7 @@ import {
   faChevronRight,
   faUsers,
   faTasks,
+  faArrowUp,
 } from '@fortawesome/free-solid-svg-icons';
 import './styles/AdminGroups.css';
 
@@ -112,6 +114,7 @@ const AdminGroups: React.FC = () => {
   const [searchInput, setSearchInput] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [refreshing, setRefreshing] = useState(false);
+  const [hasUpdates, setHasUpdates] = useState(false);
   
   // Modal states
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
@@ -126,6 +129,8 @@ const AdminGroups: React.FC = () => {
   // Track initial loads
   const initialLoadDoneRef = useRef(false);
   const statsLoadedRef = useRef(false);
+  const updateTimeoutRef = useRef<number | null>(null);
+  const isMountedRef = useRef(true);
 
   // ===== Helper to build API filters =====
   const buildApiFilters = useCallback((customFilters?: Partial<LocalGroupFilters>): GroupFilters => {
@@ -156,10 +161,99 @@ const AdminGroups: React.FC = () => {
 
   // ===== Load groups with explicit filters =====
   const loadGroups = useCallback(async (filterParams?: Partial<LocalGroupFilters>) => {
+    if (!isMountedRef.current) return;
     const apiFilters = buildApiFilters(filterParams);
     console.log('🚀 [AdminGroups] Loading groups with filters:', apiFilters);
     await fetchGroups(apiFilters);
   }, [fetchGroups, buildApiFilters]);
+
+  // ===== Refresh function =====
+  const handleRefresh = useCallback(() => {
+    console.log('🔄 [AdminGroups] Manual refresh triggered');
+    setRefreshing(true);
+    Promise.all([
+      loadGroups(),
+      fetchStats()
+    ]).finally(() => {
+      if (isMountedRef.current) {
+        setRefreshing(false);
+        setHasUpdates(false);
+      }
+    });
+  }, [loadGroups, fetchStats]);
+
+  // ===== REAL-TIME SOCKET LISTENERS =====
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    const handleGroupUpdate = () => {
+      console.log('📢 [AdminGroups] Real-time group update received');
+      if (!isMountedRef.current) return;
+      
+      setHasUpdates(true);
+      
+      // Auto-refresh after 1.5 seconds
+      if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = window.setTimeout(() => {
+        if (isMountedRef.current) {
+          handleRefresh();
+        }
+      }, 1500);
+    };
+
+    const handleGroupDeleted = () => {
+      console.log('📢 [AdminGroups] Group deleted event received');
+      if (!isMountedRef.current) return;
+      handleRefresh();
+    };
+
+    const handleGroupRestored = () => {
+      console.log('📢 [AdminGroups] Group restored event received');
+      if (!isMountedRef.current) return;
+      handleRefresh();
+    };
+
+    // Register socket listeners
+    adminSocket.on('group:suspended', handleGroupUpdate);
+    adminSocket.on('group:deleted', handleGroupDeleted);
+    adminSocket.on('group:restored', handleGroupRestored);
+    adminSocket.on('group:admin_action', handleGroupUpdate);
+
+    return () => {
+      isMountedRef.current = false;
+      adminSocket.off('group:suspended');
+      adminSocket.off('group:deleted');
+      adminSocket.off('group:restored');
+      adminSocket.off('group:admin_action');
+      if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+    };
+  }, [handleRefresh]);
+
+  // ===== AUTO-REFRESH EVERY 30 SECONDS =====
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (isMountedRef.current && !loading && !refreshing && !modalLoading) {
+        console.log('🔄 [AdminGroups] Auto-refresh triggered');
+        loadGroups();
+        fetchStats();
+      }
+    }, 30000);
+
+    return () => clearInterval(intervalId);
+  }, [loadGroups, fetchStats, loading, refreshing, modalLoading]);
+
+  // ===== REFRESH WHEN PAGE BECOMES VISIBLE =====
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && isMountedRef.current && !loading && !refreshing) {
+        console.log('👁️ [AdminGroups] Page visible, refreshing...');
+        handleRefresh();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [handleRefresh, loading, refreshing]);
 
   // ===== Initial load =====
   useEffect(() => {
@@ -215,28 +309,17 @@ const AdminGroups: React.FC = () => {
     loadGroups(newFilters);
   };
 
- const handleSortOrderToggle = () => {
-  const newOrder = filters.sortOrder === 'asc' ? 'desc' : 'asc';
-  console.log('🔄 [AdminGroups] Sort order toggled:', newOrder);
-  const newFilters: LocalGroupFilters = { 
-    ...filters, 
-    sortOrder: newOrder, // TypeScript now knows this is 'asc' | 'desc'
-    page: 1 
+  const handleSortOrderToggle = () => {
+    const newOrder = filters.sortOrder === 'asc' ? 'desc' : 'asc';
+    console.log('🔄 [AdminGroups] Sort order toggled:', newOrder);
+    const newFilters: LocalGroupFilters = { 
+      ...filters, 
+      sortOrder: newOrder,
+      page: 1 
+    };
+    setFilters(newFilters);
+    loadGroups(newFilters);
   };
-  setFilters(newFilters);
-  loadGroups(newFilters);
-};
-
-  const handleRefresh = () => {
-    console.log('🔄 [AdminGroups] Manual refresh triggered');
-    setRefreshing(true);
-    Promise.all([
-      loadGroups(),
-      fetchStats()
-    ]).finally(() => {
-      setRefreshing(false);
-    });
-  }; 
 
   const handleStatClick = (status: string) => {
     console.log('📊 [AdminGroups] Stat card clicked:', status);
@@ -290,35 +373,30 @@ const AdminGroups: React.FC = () => {
     }
   };
 
- // In AdminGroups.tsx - Fix handleApplyAction signature
+  const handleApplyAction = async (groupId: string, action: ActionType) => {
+    const analysis = selectedAnalysis?.groupId === groupId ? selectedAnalysis : null;
+    
+    if (!analysis) {
+      console.error('❌ [AdminGroups] No selected analysis for group:', groupId);
+      return;
+    }
+    
+    console.log('🎬 [AdminGroups] Applying action:', { action, groupId }); 
+    
+    const result = await applyAction(groupId, action);
+    
+    if (result.success) {
+      alert(`${ACTION_BUTTONS[action].label} applied successfully`);
+      setShowReportModal(false);
+      setSelectedAnalysis(null);
+      await loadGroups();
+      await fetchStats();
+    } else {
+      alert(result.message || 'Failed to apply action');
+    }
+  };
 
-const handleApplyAction = async (groupId: string, action: ActionType) => {
-  // Find the selected analysis for this group
-  const analysis = selectedAnalysis?.groupId === groupId ? selectedAnalysis : null;
-  
-  if (!analysis) {
-    console.error('❌ [AdminGroups] No selected analysis for group:', groupId);
-    return;
-  }
-  
-  console.log('🎬 [AdminGroups] Applying action:', { 
-    action, 
-    groupId 
-  }); 
-  
-  const result = await applyAction(groupId, action);
-  
-  if (result.success) {
-    alert(`${ACTION_BUTTONS[action].label} applied successfully`);
-    setShowReportModal(false);
-    setSelectedAnalysis(null);
-    await loadGroups();
-    await fetchStats();
-  } else {
-    alert(result.message || 'Failed to apply action');
-  }
-};
-  // View group details - FIXED with proper typing
+  // View group details
   const handleViewGroup = async (groupId: string) => {
     if (selectedRowId === groupId) return;
     
@@ -427,18 +505,15 @@ const handleApplyAction = async (groupId: string, action: ActionType) => {
 
   const totalPages = Math.ceil(pagination.total / pagination.limit);
 
-  // Check if delete button should be disabled based on report analysis - FIXED with proper types
+  // Check if delete button should be disabled
   const isDeleteDisabled = (group: GroupWithAnalysis): boolean => {
-    // If no reports, delete is allowed
     if (!group._count?.reports || group._count.reports === 0) {
       return false;
     }
     
-    // Check if there's analysis data
     const analysis = group.reportAnalysis;
-    if (!analysis) return true; // Disable if reports exist but no analysis yet
+    if (!analysis) return true;
     
-    // Check if any delete action is available with proper typing
     const hasSoftDelete = analysis.availableActions?.some(
       (a: AvailableAction) => a.action === 'SOFT_DELETE' && a.canExecute
     );
@@ -456,12 +531,18 @@ const handleApplyAction = async (groupId: string, action: ActionType) => {
   return (
     <div className="groups-wrapper">
       <div className="groups-container">
-        {/* Header */}
+        {/* Header with Update Badge */}
         <div className="groups-header">
           <div className="groups-header-left">
             <h1>
               <span className="groups-header-icon">👥</span>
               Manage Groups
+              {hasUpdates && (
+                <span className="groups-update-badge">
+                  <FontAwesomeIcon icon={faArrowUp} />
+                  New Updates
+                </span>
+              )}
             </h1>
             <p>View and manage all user groups</p>
           </div>
@@ -472,7 +553,7 @@ const handleApplyAction = async (groupId: string, action: ActionType) => {
               disabled={refreshing}
             >
               <FontAwesomeIcon icon={faRedoAlt} className={refreshing ? 'fa-spin' : ''} />
-              Refresh
+              {refreshing ? 'Refreshing...' : 'Refresh'}
             </button>
           </div>
         </div>
@@ -631,12 +712,10 @@ const handleApplyAction = async (groupId: string, action: ActionType) => {
           </div>
         ) : (
           <>
-            {/* Results Summary */}
             <div className="groups-results-summary">
               <span>Showing {groups.length} of {pagination.total} groups</span>
             </div>
 
-            {/* Groups Table */}
             <div className="groups-table-container">
               <table className="groups-table">
                 <thead>
@@ -755,31 +834,30 @@ const handleApplyAction = async (groupId: string, action: ActionType) => {
                             </button>
 
                             {isDeleted ? (
-  <button
-    className="groups-restore-btn"
-    onClick={(e) => {
-      e.stopPropagation();
-      handleRestore(group.id);
-    }}
-    disabled={actionLoading}
-  >
-    <FontAwesomeIcon icon={faUndo} />
-    <span>Restore</span>
-  </button>
-) : (
-  // Only show delete button if it's NOT disabled
-  !isDeleteDisabled(groupWithAnalysis) && (
-    <button
-  className={`groups-delete-btn ${isDeleteDisabled(groupWithAnalysis) ? 'hidden' : ''}`}
-  onClick={(e) => handleDeleteClick(e, group.id)}
-  disabled={actionLoading || isDeleteDisabled(groupWithAnalysis)}
-  title="Delete group"
->
-  <FontAwesomeIcon icon={faTrash} />
-  <span>Delete</span>
-</button>
-  )
-)}
+                              <button
+                                className="groups-restore-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRestore(group.id);
+                                }}
+                                disabled={actionLoading}
+                              >
+                                <FontAwesomeIcon icon={faUndo} />
+                                <span>Restore</span>
+                              </button>
+                            ) : (
+                              !isDeleteDisabled(groupWithAnalysis) && (
+                                <button
+                                  className={`groups-delete-btn ${isDeleteDisabled(groupWithAnalysis) ? 'hidden' : ''}`}
+                                  onClick={(e) => handleDeleteClick(e, group.id)}
+                                  disabled={actionLoading || isDeleteDisabled(groupWithAnalysis)}
+                                  title="Delete group"
+                                >
+                                  <FontAwesomeIcon icon={faTrash} />
+                                  <span>Delete</span>
+                                </button>
+                              )
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -789,7 +867,6 @@ const handleApplyAction = async (groupId: string, action: ActionType) => {
               </table>
             </div>
 
-            {/* Pagination */}
             {totalPages > 1 && (
               <div className="groups-pagination">
                 <button
@@ -940,23 +1017,23 @@ const handleApplyAction = async (groupId: string, action: ActionType) => {
                               </span>
                             ))}
                           </div>
-                   <button
-  className={`apply-action-btn ${!action.canExecute ? 'disabled' : ''}`}
-  onClick={() => {
-    if (selectedAnalysis) {
-      handleApplyAction(selectedAnalysis.groupId, action.action);
-    }
-  }}
-  disabled={!action.canExecute || actionLoading}
-  style={{
-    backgroundColor: action.canExecute ? buttonConfig.hoverColor : '#cccccc',
-    color: action.canExecute ? 'white' : '#666666',
-    cursor: !action.canExecute || actionLoading ? 'not-allowed' : 'pointer',
-    opacity: !action.canExecute || actionLoading ? 0.5 : 1
-  }}
->
-  {actionLoading ? 'Applying...' : `Apply ${buttonConfig.label}`}
-</button>
+                          <button
+                            className={`apply-action-btn ${!action.canExecute ? 'disabled' : ''}`}
+                            onClick={() => {
+                              if (selectedAnalysis) {
+                                handleApplyAction(selectedAnalysis.groupId, action.action);
+                              }
+                            }}
+                            disabled={!action.canExecute || actionLoading}
+                            style={{
+                              backgroundColor: action.canExecute ? buttonConfig.hoverColor : '#cccccc',
+                              color: action.canExecute ? 'white' : '#666666',
+                              cursor: !action.canExecute || actionLoading ? 'not-allowed' : 'pointer',
+                              opacity: !action.canExecute || actionLoading ? 0.5 : 1
+                            }}
+                          >
+                            {actionLoading ? 'Applying...' : `Apply ${buttonConfig.label}`}
+                          </button>
                         </div>
                       );
                     })}
