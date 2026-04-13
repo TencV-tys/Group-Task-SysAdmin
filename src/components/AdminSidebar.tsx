@@ -1,5 +1,5 @@
 // layouts/AdminSidebar.tsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
@@ -20,6 +20,7 @@ import { useAdminAuth } from '../hooks/useAdminAuth';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
 import { AdminNotificationsService } from '../services/admin.notifications.service';
 import { AdminReportsService } from '../services/admin.report.services';
+import { adminSocket } from '../services/adminSocket';
 import './styles/AdminSidebar.css';
 
 interface SidebarProps {
@@ -36,120 +37,182 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   const [notificationCount, setNotificationCount] = useState<number>(0);
   const [reportCount, setReportCount] = useState<number>(0);
   
-  // 🔥 Use refs to track if data has been fetched
-  const hasFetchedRef = useRef(false);
-  const fetchTimeoutRef = useRef<number|undefined>(undefined);
+  const isMountedRef = useRef(true);
+  const listenersInitializedRef = useRef(false);
+  const retryTimeoutRef = useRef<number | undefined>(undefined);
 
-  // 🔥 Fetch counts only once when component mounts
-  useEffect(() => {
-    // Only fetch if we haven't fetched before
-    if (hasFetchedRef.current) return;
+  // ========== FETCH INITIAL COUNTS ==========
+  const fetchAllCounts = useCallback(async () => {
+    if (!isMountedRef.current) return;
     
-    const fetchCounts = async () => {
-      try {
-        // Use Promise.allSettled to handle failures gracefully
-        const [statsResult, unreadResult, reportsResult] = await Promise.allSettled([
-          AdminFeedbackService.getFeedbackStats(),
-          AdminNotificationsService.getUnreadCount(),
-          AdminReportsService.getReports({ status: 'PENDING', limit: 1 })
-        ]);
+    try {
+      const [statsResult, unreadResult, reportsResult] = await Promise.allSettled([
+        AdminFeedbackService.getFeedbackStats(),
+        AdminNotificationsService.getUnreadCount(),
+        AdminReportsService.getReports({ status: 'PENDING', limit: 1 })
+      ]);
 
-        // Handle feedback stats
-        if (statsResult.status === 'fulfilled' && statsResult.value.success && statsResult.value.data) {
-          const openCount = (statsResult.value.data.open || 0) + (statsResult.value.data.inProgress || 0);
-          setFeedbackCount(openCount);
-        }
+      if (!isMountedRef.current) return;
 
-        // Handle notification count
-        if (unreadResult.status === 'fulfilled' && unreadResult.value.success && unreadResult.value.data) {
-          setNotificationCount(unreadResult.value.data.count);
-        }
-
-        // Handle reports count
-        if (reportsResult.status === 'fulfilled' && reportsResult.value.success && reportsResult.value.pagination) {
-          setReportCount(reportsResult.value.pagination.total);
-        }
-        
-        // Mark as fetched
-        hasFetchedRef.current = true;
-        
-      } catch (error) {
-        console.error('Failed to fetch counts:', error);
-        // Don't mark as fetched on error so we can retry
+      if (statsResult.status === 'fulfilled' && statsResult.value.success && statsResult.value.data) {
+        const openCount = (statsResult.value.data.open || 0) + (statsResult.value.data.inProgress || 0);
+        setFeedbackCount(openCount);
       }
-    };
 
-    fetchCounts();
-
-    // 🔥 NO interval! Just fetch once on mount
-
-    return () => {
-      if (fetchTimeoutRef.current) {
-        clearTimeout(fetchTimeoutRef.current);
+      if (unreadResult.status === 'fulfilled' && unreadResult.value.success && unreadResult.value.data) {
+        setNotificationCount(unreadResult.value.data.count);
       }
-    };
-  }, []); // Empty dependency array = runs once on mount
 
-  // 🔥 Listen for specific events that should trigger a refresh
-  useEffect(() => {
-    const handleFeedbackUpdate = () => {
-      // Debounce the refresh
-      if (fetchTimeoutRef.current) {
-        clearTimeout(fetchTimeoutRef.current);
+      if (reportsResult.status === 'fulfilled' && reportsResult.value.success && reportsResult.value.pagination) {
+        setReportCount(reportsResult.value.pagination.total);
       }
-      
-      fetchTimeoutRef.current = setTimeout(() => {
-        AdminFeedbackService.getFeedbackStats().then(result => {
-          if (result.success && result.data) {
-            const openCount = (result.data.open || 0) + (result.data.inProgress || 0);
-            setFeedbackCount(openCount);
-          }
-        });
-      }, 1000);
-    };
-
-    const handleNotificationUpdate = () => {
-      if (fetchTimeoutRef.current) {
-        clearTimeout(fetchTimeoutRef.current);
-      }
-      
-      fetchTimeoutRef.current = setTimeout(() => {
-        AdminNotificationsService.getUnreadCount().then(result => {
-          if (result.success && result.data) {
-            setNotificationCount(result.data.count);
-          }
-        });
-      }, 1000);
-    };
-
-    const handleReportUpdate = () => {
-      if (fetchTimeoutRef.current) {
-        clearTimeout(fetchTimeoutRef.current);
-      }
-      
-      fetchTimeoutRef.current = setTimeout(() => {
-        AdminReportsService.getReports({ status: 'PENDING', limit: 1 }).then(result => {
-          if (result.success && result.pagination) {
-            setReportCount(result.pagination.total);
-          }
-        });
-      }, 1000);
-    };
-
-    // Listen for custom events (these would be dispatched when actions happen)
-    window.addEventListener('feedback-updated', handleFeedbackUpdate);
-    window.addEventListener('notification-updated', handleNotificationUpdate);
-    window.addEventListener('report-updated', handleReportUpdate);
-
-    return () => {
-      window.removeEventListener('feedback-updated', handleFeedbackUpdate);
-      window.removeEventListener('notification-updated', handleNotificationUpdate);
-      window.removeEventListener('report-updated', handleReportUpdate);
-      if (fetchTimeoutRef.current) {
-        clearTimeout(fetchTimeoutRef.current);
-      }
-    };
+    } catch (error) {
+      console.error('Failed to fetch counts:', error);
+    }
   }, []);
+
+  // ========== REFRESH FEEDBACK COUNT ==========
+  const refreshFeedbackCount = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
+    const result = await AdminFeedbackService.getFeedbackStats();
+    if (isMountedRef.current && result.success && result.data) {
+      const openCount = (result.data.open || 0) + (result.data.inProgress || 0);
+      setFeedbackCount(openCount);
+    }
+  }, []);
+
+  // ========== REFRESH NOTIFICATION COUNT ==========
+  const refreshNotificationCount = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
+    const result = await AdminNotificationsService.getUnreadCount();
+    if (isMountedRef.current && result.success && result.data) {
+      setNotificationCount(result.data.count);
+    }
+  }, []);
+
+  // ========== REFRESH REPORT COUNT ==========
+  const refreshReportCount = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
+    const result = await AdminReportsService.getReports({ status: 'PENDING', limit: 1 });
+    if (isMountedRef.current && result.success && result.pagination) {
+      setReportCount(result.pagination.total);
+    }
+  }, []);
+
+  // ========== SETUP REAL-TIME SOCKET LISTENERS ==========
+  const setupSocketListeners = useCallback(() => {
+    if (listenersInitializedRef.current) return;
+    
+    // Check if socket is connected
+    if (!adminSocket.isConnected) {
+      console.log('⏳ [SIDEBAR] Socket not connected yet, will retry...');
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = setTimeout(() => {
+        setupSocketListeners();
+      }, 2000);
+      return;
+    }
+    
+    listenersInitializedRef.current = true;
+    
+    // Type-safe event handlers
+    const handleFeedbackStatus = () => {
+      console.log('📢 [SIDEBAR] Real-time feedback update');
+      refreshFeedbackCount();
+    };
+    
+    const handleFeedbackDeleted = () => {
+      console.log('📢 [SIDEBAR] Real-time feedback deleted');
+      refreshFeedbackCount();
+    };
+    
+    const handleNotificationNew = () => {
+      console.log('📢 [SIDEBAR] New notification received');
+      setNotificationCount(prev => prev + 1);
+    };
+    
+    const handleNotificationRead = () => {
+      console.log('📢 [SIDEBAR] Notification marked as read');
+      refreshNotificationCount();
+    };
+    
+    const handleReportStatus = () => {
+      console.log('📢 [SIDEBAR] Report status changed');
+      refreshReportCount();
+    };
+    
+    const handleReportDeleted = () => {
+      console.log('📢 [SIDEBAR] Report deleted');
+      refreshReportCount();
+    };
+    
+    const handleBulkReports = () => {
+      console.log('📢 [SIDEBAR] Bulk reports updated');
+      refreshReportCount();
+    };
+    
+    // Register listeners
+    adminSocket.on('feedback:status', handleFeedbackStatus);
+    adminSocket.on('feedback:deleted', handleFeedbackDeleted);
+    adminSocket.on('notification:new', handleNotificationNew);
+    adminSocket.on('notification:read', handleNotificationRead);
+    adminSocket.on('report:status', handleReportStatus);
+    adminSocket.on('report:deleted', handleReportDeleted);
+    adminSocket.on('reports:bulk-updated', handleBulkReports);
+    
+    console.log('✅ [SIDEBAR] Socket listeners initialized');
+  }, [refreshFeedbackCount, refreshNotificationCount, refreshReportCount]);
+
+  // ========== INITIAL FETCH - Run once on mount ==========
+  useEffect(() => {
+    isMountedRef.current = true;
+    
+    const loadInitialCounts = async () => {
+      await fetchAllCounts();
+    };
+    
+    loadInitialCounts();
+    
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [fetchAllCounts]);
+
+  // ========== SETUP SOCKET LISTENERS - Run after component mounts ==========
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setupSocketListeners();
+    }, 1000);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+      // Clean up all listeners
+      adminSocket.off('feedback:status');
+      adminSocket.off('feedback:deleted');
+      adminSocket.off('notification:new');
+      adminSocket.off('notification:read');
+      adminSocket.off('report:status');
+      adminSocket.off('report:deleted');
+      adminSocket.off('reports:bulk-updated');
+      listenersInitializedRef.current = false;
+    };
+  }, [setupSocketListeners]);
+
+  // ========== REFRESH WHEN PAGE BECOMES VISIBLE ==========
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && isMountedRef.current) {
+        fetchAllCounts();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [fetchAllCounts]);
 
   const isActive = (path: string) => {
     return location.pathname.startsWith(path);
@@ -160,7 +223,6 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     navigate('/admin/login');
   };
 
-  // Format role for display - hide SUPER_ADMIN
   const getDisplayRole = (role: string | undefined) => {
     if (!role) return 'Administrator';
     if (role === 'SUPER_ADMIN') return 'Administrator';
@@ -168,24 +230,9 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   };
 
   const menuItems = [
-    {
-      path: '/admin/dashboard',
-      icon: faChartPie,
-      label: 'Dashboard',
-      badge: null
-    },
-    {
-      path: '/admin/users',
-      icon: faUsers,
-      label: 'Manage Users',
-      badge: null
-    },
-    {
-      path: '/admin/groups',
-      icon: faLayerGroup,
-      label: 'Manage Groups',
-      badge: null
-    },
+    { path: '/admin/dashboard', icon: faChartPie, label: 'Dashboard', badge: null },
+    { path: '/admin/users', icon: faUsers, label: 'Manage Users', badge: null },
+    { path: '/admin/groups', icon: faLayerGroup, label: 'Manage Groups', badge: null },
     {
       path: '/admin/feedback',
       icon: faComment,
@@ -204,12 +251,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       label: 'Reports',
       badge: reportCount > 0 ? (reportCount > 99 ? '99+' : reportCount.toString()) : null
     },
-    {
-      path: '/admin/audit',
-      icon: faHistory,
-      label: 'Audit Logs',
-      badge: null
-    }
+    { path: '/admin/audit', icon: faHistory, label: 'Audit Logs', badge: null }
   ];
 
   return (
@@ -267,7 +309,6 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
         </div>
       </aside>
 
-      {/* Logout Confirmation Modal */}
       {showLogoutConfirm && (
         <div className="modal-overlay" onClick={() => setShowLogoutConfirm(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
