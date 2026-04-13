@@ -1,9 +1,10 @@
-// pages/Users.tsx - COMPLETE WITH SAFEIMAGE AND AVATAR HANDLING
+// pages/Users.tsx - Add update indicator (optional)
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useUsers } from '../hooks/useUsers';
 import UsersModal from '../components/UsersModal';
 import LoadingScreen from '../components/LoadingScreen';
 import ErrorDisplay from '../components/ErrorDisplay';
+import { adminSocket } from '../services/adminSocket';
 import type { UserDetails } from '../services/admin.users.service';
 import './styles/Users.css';
 
@@ -36,7 +37,7 @@ const SafeImage = ({ src, className, fallbackChar }: { src: string; className: s
 };
 
 const Users = () => {
-  const { users, loading, error, pagination, fetchUsers, getUserDetails, setPagination, stats } = useUsers(10);
+  const { users, loading, error, pagination, fetchUsers, getUserDetails, setPagination, stats, refresh } = useUsers(10);
   
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -47,6 +48,7 @@ const Users = () => {
   const [initialLoad, setInitialLoad] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<string>('');
+  const [hasUpdates, setHasUpdates] = useState(false);
   
   // Refs to prevent multiple requests
   const fetchInProgress = useRef(false);
@@ -91,6 +93,7 @@ const Users = () => {
           status: statusFilter || undefined,
           role: roleFilter || undefined
         });
+        setHasUpdates(false); // Clear update indicator after refresh
       } finally {
         fetchInProgress.current = false;
         setInitialLoad(false);
@@ -100,14 +103,35 @@ const Users = () => {
     loadUsers();
   }, [pagination.page, pagination.limit, debouncedSearch, statusFilter, roleFilter, fetchUsers]);
 
+  // ========== OPTIONAL: Listen for user-related events ==========
+  useEffect(() => {
+    const handleUserChange = () => {
+      // Only show indicator if we're on first page with no active filters
+      if (pagination.page === 1 && !debouncedSearch && !statusFilter && !roleFilter) {
+        setHasUpdates(true);
+      }
+    };
+
+    // Listen for user events (optional - only if your backend emits these)
+    adminSocket.on('user:created', handleUserChange);
+    adminSocket.on('user:updated', handleUserChange);
+    adminSocket.on('user:deleted', handleUserChange);
+
+    return () => {
+      adminSocket.off('user:created');
+      adminSocket.off('user:updated');
+      adminSocket.off('user:deleted');
+    };
+  }, [pagination.page, debouncedSearch, statusFilter, roleFilter]);
+
   // ===== Handle stat card click =====
   const handleStatClick = (filterType: string, value: string) => {
     if (filterType === 'status') {
       setStatusFilter(value);
-      setRoleFilter(''); // Clear role filter when clicking status
+      setRoleFilter('');
     } else if (filterType === 'role') {
       setRoleFilter(value);
-      setStatusFilter(''); // Clear status filter when clicking role
+      setStatusFilter('');
     }
     setPagination(prev => ({ ...prev, page: 1 }));
   };
@@ -176,6 +200,11 @@ const Users = () => {
     setPagination(prev => ({ ...prev, page: 1 }));
   }, [setPagination]);
 
+  const handleRefresh = () => {
+    refresh();
+    setHasUpdates(false);
+  };
+
   const formatDate = (dateString: string) => {
     try {
       return new Date(dateString).toLocaleDateString('en-US', {
@@ -209,10 +238,21 @@ const Users = () => {
   return (
     <div className="users-wrapper">
       <div className="users-container">
-        {/* Header */}
+        {/* Header with Refresh Button */}
         <div className="users-header">
           <div className="users-header-left">
-            <h1 className="users-title">Manage Users</h1>
+            <h1 className="users-title">
+              Manage Users
+              {hasUpdates && (
+                <button className="users-update-badge" onClick={handleRefresh}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                  New updates available
+                </button>
+              )}
+            </h1>
             <p className="users-subtitle">View and manage system users</p>
           </div>
           <div className="users-search">
@@ -236,6 +276,17 @@ const Users = () => {
                 disabled={loading || searchTerm === debouncedSearch}
               >
                 {loading ? 'Searching...' : 'Search'}
+              </button>
+              <button 
+                onClick={handleRefresh} 
+                className="users-refresh-btn" 
+                disabled={loading}
+                title="Refresh users"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                  <path d="M23 4v6h-6M1 20v-6h6" />
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
               </button>
             </div>
           </div>
@@ -469,5 +520,5 @@ const Users = () => {
     </div>
   );
 };
-
-export default Users;
+ 
+export default Users; 

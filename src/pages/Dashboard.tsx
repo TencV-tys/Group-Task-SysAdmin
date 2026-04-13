@@ -1,10 +1,11 @@
 // pages/Dashboard.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '../hooks/useAdminAuth';
 import type { DashboardStats, ActivityLog } from '../services/admin.dashboard.service';
 import { AdminDashboardService } from '../services/admin.dashboard.service';
 import LoadingScreen from '../components/LoadingScreen';
+import { adminSocket } from '../services/adminSocket';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faUsers, 
@@ -20,7 +21,8 @@ import {
   faExclamationTriangle,
   faCheckCircle,
   faSpinner,
-  faUserPlus
+  faUserPlus,
+  faArrowUp
 } from '@fortawesome/free-solid-svg-icons';
 import './styles/Dashboard.css'; 
 
@@ -31,44 +33,138 @@ const Dashboard = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [recentActivity, setRecentActivity] = useState<ActivityLog[]>([]); // 👈 FIXED TYPE
+  const [recentActivity, setRecentActivity] = useState<ActivityLog[]>([]);
+  const [hasUpdates, setHasUpdates] = useState(false);
+  
+  const isMountedRef = useRef(true);
+  const updateTimeoutRef = useRef<number | null>(null);
 
-  const fetchData = async (isRefreshing = false) => {
+  const fetchData = useCallback(async (isRefreshing = false, showUpdateIndicator = false) => {
     if (isRefreshing) {
       setRefreshing(true);
-    } else {
+    } else if (!showUpdateIndicator) {
       setLoading(true);
     }
      
     try {
       // Fetch dashboard stats
       const statsResult = await AdminDashboardService.getStats();
-      if (statsResult.success && statsResult.data) {
+      if (statsResult.success && statsResult.data && isMountedRef.current) {
         setStats(statsResult.data);
-      } else {
+        setError(null);
+      } else if (!isRefreshing && isMountedRef.current) {
         setError(statsResult.message || 'Failed to load dashboard stats');
       }
 
       // Fetch recent activity from audit logs
       const activityResult = await AdminDashboardService.getRecentActivity(10);
-      if (activityResult.success && activityResult.logs) {
+      if (activityResult.success && activityResult.logs && isMountedRef.current) {
         setRecentActivity(activityResult.logs);
       }
 
-    } catch { // 👈 FIXED: Removed unused 'err' parameter
-      setError('Network error. Please try again.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+      if (showUpdateIndicator) {
+        // Show "updated" indicator for 3 seconds
+        if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+        updateTimeoutRef.current = window.setTimeout(() => {
+          if (isMountedRef.current) {
+            setHasUpdates(false);
+          }
+        }, 3000);
+      }
 
-  useEffect(() => {
-    fetchData();
+    } catch {
+      if (!isRefreshing && isMountedRef.current) {
+        setError('Network error. Please try again.');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
   }, []);
 
+  // ========== REAL-TIME SOCKET LISTENERS ==========
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    // Handle various real-time events that should refresh the dashboard
+    const handleDataChange = () => {
+      if (isMountedRef.current) {
+        setHasUpdates(true);
+        // Auto-refresh after 1 second of showing indicator
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            fetchData(true, true);
+          }
+        }, 1000);
+      }
+    };
+
+    // Listen for all events that affect dashboard stats
+    const events = [
+      'user:created',
+      'user:updated', 
+      'user:deleted',
+      'group:created',
+      'group:updated',
+      'group:deleted',
+      'feedback:status',
+      'feedback:deleted',
+      'report:status',
+      'report:deleted',
+      'reports:bulk-updated',
+      'notification:new',
+      'notification:read',
+      'audit:log'
+    ];
+
+    // Register listeners for all events
+    events.forEach(event => {
+      adminSocket.on(event, handleDataChange);
+    });
+
+    // Initial fetch
+    fetchData();
+
+    return () => {
+      isMountedRef.current = false;
+      // Clean up all listeners
+      events.forEach(event => {
+        adminSocket.off(event);
+      });
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+    };
+  }, [fetchData]);
+
+  // ========== AUTO-REFRESH EVERY 30 SECONDS ==========
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (isMountedRef.current && !refreshing && !loading) {
+        fetchData(true, false);
+      }
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(intervalId);
+  }, [fetchData, refreshing, loading]);
+
+  // ========== REFRESH WHEN PAGE BECOMES VISIBLE ==========
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && isMountedRef.current && !refreshing && !loading) {
+        fetchData(true, false);
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [fetchData, refreshing, loading]);
+
   const handleRefresh = () => {
-    fetchData(true);
+    fetchData(true, false);
+    setHasUpdates(false);
   };
 
   const handleCardClick = (path: string) => {
@@ -115,10 +211,18 @@ const Dashboard = () => {
   return (
     <div className="admin-dash-wrapper">
       <div className="admin-dash-container">
-        {/* Header */}
+        {/* Header with Update Indicator */}
         <div className="admin-dash-header">
           <div>
-            <h1 className="admin-dash-title">Dashboard</h1>
+            <h1 className="admin-dash-title">
+              Dashboard
+              {hasUpdates && (
+                <span className="admin-dash-update-badge">
+                  <FontAwesomeIcon icon={faArrowUp} />
+                  New Updates
+                </span>
+              )}
+            </h1>
             <p className="admin-dash-welcome">Welcome back, {admin?.fullName || 'Admin'}!</p>
           </div>
           <div className="admin-dash-date">
