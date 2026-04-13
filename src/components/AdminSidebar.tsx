@@ -39,7 +39,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   
   const isMountedRef = useRef(true);
   const listenersInitializedRef = useRef(false);
-  const retryTimeoutRef = useRef<number | undefined>(undefined);
+  const retryTimeoutRef = useRef<number | null>(null);
 
   // ========== FETCH INITIAL COUNTS ==========
   const fetchAllCounts = useCallback(async () => {
@@ -109,11 +109,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     // Check if socket is connected
     if (!adminSocket.isConnected) {
       console.log('⏳ [SIDEBAR] Socket not connected yet, will retry...');
-      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
-      retryTimeoutRef.current = setTimeout(() => {
-        setupSocketListeners();
-      }, 2000);
-      return;
+      return; // Don't retry here, let the useEffect handle retry
     }
     
     listenersInitializedRef.current = true;
@@ -181,11 +177,19 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     };
   }, [fetchAllCounts]);
 
-  // ========== SETUP SOCKET LISTENERS - Run after component mounts ==========
+  // ========== SETUP SOCKET LISTENERS WITH RETRY ==========
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      setupSocketListeners();
-    }, 1000);
+    const attemptSetup = () => {
+      if (adminSocket.isConnected) {
+        setupSocketListeners();
+      } else {
+        console.log('⏳ [SIDEBAR] Socket not connected, scheduling retry...');
+        if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = window.setTimeout(attemptSetup, 2000);
+      }
+    };
+    
+    const timeoutId = setTimeout(attemptSetup, 1000);
     
     return () => {
       clearTimeout(timeoutId);
