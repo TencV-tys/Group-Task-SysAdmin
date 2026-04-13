@@ -1,7 +1,9 @@
-// pages/Reports.tsx - COMPLETE FIXED VERSION
+// pages/Reports.tsx - FULLY UPDATED WITH REAL-TIME
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Report, ReportFilters } from '../services/admin.report.services';
 import { AdminReportsService } from '../services/admin.report.services';
+import { adminSocket } from '../services/adminSocket';
 import LoadingScreen from '../components/LoadingScreen';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
@@ -51,6 +53,32 @@ interface ReportStatistics {
   }>;
 }
 
+interface NewReportSocketData {
+  reportId: string;
+  groupId: string;
+  groupName: string;
+  reporterId: string;
+  reporterName: string;
+  reportType: string;
+  description: string;
+  createdAt: string;
+  status: string;
+}
+
+interface ReportStatusSocketData {
+  reportId: string;
+  groupId: string;
+  groupName: string;
+  reporterId: string;
+  reporterName: string;
+  oldStatus: string;
+  newStatus: string;
+  resolvedBy: string;
+  resolutionNotes: string | null;
+  resolvedAt: string;
+}
+
+
 // Safe Image Component to handle broken avatar URLs
 const SafeImage = ({ src, className, fallbackChar }: { src: string; className: string; fallbackChar: string }) => {
   const [error, setError] = useState(false);
@@ -99,9 +127,15 @@ const Reports: React.FC = () => {
   const [stats, setStats] = useState<ReportStatistics | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [searchInput, setSearchInput] = useState('');
+  const [toastMessage, setToastMessage] = useState<{ id: string; title: string; message: string } | null>(null);
+  const [hasNewReport, setHasNewReport] = useState(false);
+  
   const isFetchingRef = useRef(false);
+  const toastTimeoutRef = useRef<number | undefined>(undefined);
+  const lastShownReportIdRef = useRef<string | null>(null);
+  const pendingToastRef = useRef<{ id: string; title: string; message: string } | null>(null);
 
-  // ===== FIXED: Pass filters as parameter, not dependency =====
+  // ===== FETCH REPORTS =====
   const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
     if (isFetchingRef.current) return;
     
@@ -110,7 +144,6 @@ const Reports: React.FC = () => {
     setError(null);
     
     try {
-      // Use provided filters or current state
       const apiFilters = filterParams || filters;
       const queryFilters = { ...apiFilters };
       if (queryFilters.status === 'ALL') delete queryFilters.status;
@@ -120,6 +153,7 @@ const Reports: React.FC = () => {
       if (result.success) {
         setReports(result.reports || []);
         setTotalReports(result.pagination?.total || 0);
+        setHasNewReport(false);
       } else {
         setError(result.message || 'Failed to load reports');
       }
@@ -131,7 +165,7 @@ const Reports: React.FC = () => {
       setRefreshing(false);
       isFetchingRef.current = false;
     }
-  }, [filters]); // 👈 Empty dependency array - NEVER recreates
+  }, [filters]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -144,7 +178,62 @@ const Reports: React.FC = () => {
     }
   }, []);
 
-  // ===== Update useEffect to pass current filters =====
+  
+useEffect(() => {
+  // ✅ Fix: Use rest parameters to match EventCallback signature
+  const handleNewReport = (...args: unknown[]) => {
+    const data = args[0] as NewReportSocketData;
+    console.log('📢 Real-time: New report received', data);
+    
+    if (data.reportId !== lastShownReportIdRef.current) {
+      lastShownReportIdRef.current = data.reportId;
+      
+      pendingToastRef.current = {
+        id: data.reportId,
+        title: '🚨 New Report',
+        message: `${data.reporterName} reported "${data.groupName}" for ${data.reportType?.replace(/_/g, ' ') || 'unknown'}`
+      };
+    }
+    
+    fetchReports(filters);
+    fetchStats();
+    setHasNewReport(true);
+  };
+  
+  const handleReportStatusChanged = (...args: unknown[]) => {
+    const data = args[0] as ReportStatusSocketData;
+    console.log('📢 Real-time: Report status changed', data);
+    fetchReports(filters);
+    fetchStats();
+  };
+  
+  adminSocket.on('report:new', handleNewReport);
+  adminSocket.on('report:status', handleReportStatusChanged);
+  
+  return () => {
+    adminSocket.off('report:new', handleNewReport);
+    adminSocket.off('report:status', handleReportStatusChanged);
+  };
+}, [filters, fetchReports, fetchStats]);
+  // ===== Show toast for new report =====
+  useEffect(() => {
+    if (pendingToastRef.current) {
+      const toast = pendingToastRef.current;
+      pendingToastRef.current = null;
+      
+      setToastMessage(toast);
+      
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = setTimeout(() => {
+        setToastMessage(null);
+        setTimeout(() => {
+          lastShownReportIdRef.current = null;
+        }, 1000);
+      }, 5000);
+    }
+  }, [reports]);
+
+  // ===== Initial data load =====
   useEffect(() => {
     fetchReports(filters);
   }, [filters, fetchReports]);
@@ -157,6 +246,7 @@ const Reports: React.FC = () => {
     setRefreshing(true);
     fetchReports(filters);
     fetchStats();
+    setHasNewReport(false);
   };
 
   const handleSearch = () => {
@@ -169,13 +259,14 @@ const Reports: React.FC = () => {
     const newFilters = { ...filters, status, page: 1 };
     setFilters(newFilters);
     fetchReports(newFilters);
+    setHasNewReport(false);
   };
 
-  // ===== Handle stat card click =====
   const handleStatClick = (status: string) => {
     const newFilters = { ...filters, status, page: 1 };
     setFilters(newFilters);
     fetchReports(newFilters);
+    setHasNewReport(false);
   };
 
   const handlePageChange = (newPage: number) => {
@@ -202,7 +293,6 @@ const Reports: React.FC = () => {
     setShowUpdateModal(true);
   };
 
-  // ===== FIXED: Update handler that preserves current filter =====
   const handleUpdateStatus = async () => {
     if (!selectedReport) return;
     
@@ -215,27 +305,21 @@ const Reports: React.FC = () => {
       );
       
       if (result.success) {
-        // Close modal
         setShowUpdateModal(false);
         
-        // Store current filter before refresh
-        const currentFilter = filters.status;
-        
-        // Refresh data with CURRENT filters
+        // Refresh data with current filters
         await fetchReports(filters);
         await fetchStats();
         
-        // Clear states
         setSelectedReport(null);
         setSelectedRowId(null);
         setUpdateStatus('');
         setUpdateNotes('');
         
-        // Show success message
         alert(`Report status updated to ${updateStatus}`);
         
-        // If the report no longer matches current filter, 
-        // offer to switch to ALL view
+        // If the report no longer matches current filter, offer to switch
+        const currentFilter = filters.status;
         if (currentFilter !== 'ALL' && currentFilter !== updateStatus) {
           if (window.confirm('Report updated. Switch to "All Reports" view to see it?')) {
             const newFilters = { ...filters, status: 'ALL', page: 1 };
@@ -372,6 +456,7 @@ const Reports: React.FC = () => {
     };
     setFilters(newFilters);
     fetchReports(newFilters);
+    setHasNewReport(false);
   };
 
   if (loading && !refreshing) {
@@ -380,10 +465,22 @@ const Reports: React.FC = () => {
 
   return (
     <div className="reports-page">
+      {/* Toast notification for new reports */}
+      {toastMessage && (
+        <div className="reports-toast" key={toastMessage.id}>
+          <div className="toast-content">
+            <strong>{toastMessage.title}</strong>
+            <span>{toastMessage.message}</span>
+          </div>
+          <button className="toast-close" onClick={() => setToastMessage(null)}>×</button>
+        </div>
+      )}
+
       <div className="page-header">
         <h1>
           <FontAwesomeIcon icon={faFlag} className="page-icon" />
           Reports Management
+          {hasNewReport && <span className="new-reports-badge">●</span>}
         </h1>
         <button className="refresh-btn" onClick={handleRefresh} disabled={refreshing}>
           <FontAwesomeIcon icon={faRedoAlt} className={refreshing ? 'fa-spin' : ''} />
@@ -391,7 +488,7 @@ const Reports: React.FC = () => {
         </button>
       </div>
 
-      {/* Stats Cards - NOW CLICKABLE */}
+      {/* Stats Cards - Clickable */}
       {stats && (
         <div className="stats-grid">
           <div 
@@ -522,7 +619,6 @@ const Reports: React.FC = () => {
         </div>
       ) : (
         <>
-          {/* Reports Table or Empty State */}
           {reports.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">
@@ -542,7 +638,6 @@ const Reports: React.FC = () => {
             </div>
           ) : (
             <>
-              {/* Reports Table */}
               <div className="table-container">
                 <table className="reports-table">
                   <thead>
@@ -557,97 +652,92 @@ const Reports: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                   {reports.map((report, index) => {
-  // 👈 Move console.log here, outside JSX
-  console.log('Rendering status:', report.status);
-  
-  return (
-    <tr 
-      key={`${report.id}-${report.status}-${report.resolvedAt || index}`} 
-      onClick={() => handleRowClick(report)}
-      className={`report-row ${selectedRowId === report.id ? 'selected' : ''}`}
-    >
-      <td>
-        <span className={`status-badge ${getStatusBadgeClass(report.status)}`}>
-          <FontAwesomeIcon icon={getStatusIcon(report.status)} />
-          {report.status}
-        </span>
-      </td>
-      <td>
-        <span className={`type-badge ${getTypeClass(report.type)}`}>
-          <span>{getTypeIcon(report.type)}</span>
-          {report.type?.replace(/_/g, ' ') || 'Unknown'}
-        </span>
-      </td>
-      <td>
-        <div className="group-cell">
-          {report.group?.avatarUrl ? (
-            <SafeImage 
-              src={report.group.avatarUrl} 
-              className="group-avatar"
-              fallbackChar={report.group?.name?.charAt(0) || 'G'}
-            />
-          ) : (
-            <div className="group-avatar-placeholder">
-              {report.group?.name?.charAt(0) || 'G'}
-            </div>
-          )}
-          <span>{report.group?.name || 'Unknown Group'}</span>
-        </div>
-      </td>
-      <td>
-        <div className="user-cell">
-          {report.reporter?.avatarUrl ? (
-            <SafeImage 
-              src={report.reporter.avatarUrl} 
-              className="user-avatar"
-              fallbackChar={report.reporter?.fullName?.charAt(0) || 'U'}
-            />
-          ) : (
-            <div className="user-avatar-placeholder">
-              {report.reporter?.fullName?.charAt(0) || 'U'}
-            </div>
-          )}
-          <span>{report.reporter?.fullName || 'Unknown User'}</span>
-        </div>
-      </td>
-      <td>
-        <div className="description-cell" title={report.description}>
-          {report.description?.length > 50 
-            ? `${report.description.substring(0, 50)}...` 
-            : report.description || 'No description'}
-        </div>
-      </td>
-      <td>
-        <div className="date-cell">
-          <FontAwesomeIcon icon={faCalendarAlt} />
-          {getTimeAgo(report.createdAt)}
-        </div>
-      </td>
-      <td onClick={(e) => e.stopPropagation()}>
-        <div className="action-buttons">
-          <button 
-            className="action-btn view"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleViewFullDetails(report);
-            }}
-            title="View Details"
-          >
-            <FontAwesomeIcon icon={faEye} />
-          </button>
-          <button 
-            className="action-btn update"
-            onClick={(e) => handleUpdateClick(e, report)}
-            title="Update Status"
-          >
-            <FontAwesomeIcon icon={faCheck} />
-          </button>
-        </div>
-      </td>
-    </tr>  
-  ); 
-})}
+                    {reports.map((report, index) => (
+                      <tr 
+                        key={`${report.id}-${report.status}-${report.resolvedAt || index}`} 
+                        onClick={() => handleRowClick(report)}
+                        className={`report-row ${selectedRowId === report.id ? 'selected' : ''}`}
+                      >
+                        <td>
+                          <span className={`status-badge ${getStatusBadgeClass(report.status)}`}>
+                            <FontAwesomeIcon icon={getStatusIcon(report.status)} />
+                            {report.status}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`type-badge ${getTypeClass(report.type)}`}>
+                            <span>{getTypeIcon(report.type)}</span>
+                            {report.type?.replace(/_/g, ' ') || 'Unknown'}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="group-cell">
+                            {report.group?.avatarUrl ? (
+                              <SafeImage 
+                                src={report.group.avatarUrl} 
+                                className="group-avatar"
+                                fallbackChar={report.group?.name?.charAt(0) || 'G'}
+                              />
+                            ) : (
+                              <div className="group-avatar-placeholder">
+                                {report.group?.name?.charAt(0) || 'G'}
+                              </div>
+                            )}
+                            <span>{report.group?.name || 'Unknown Group'}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="user-cell">
+                            {report.reporter?.avatarUrl ? (
+                              <SafeImage 
+                                src={report.reporter.avatarUrl} 
+                                className="user-avatar"
+                                fallbackChar={report.reporter?.fullName?.charAt(0) || 'U'}
+                              />
+                            ) : (
+                              <div className="user-avatar-placeholder">
+                                {report.reporter?.fullName?.charAt(0) || 'U'}
+                              </div>
+                            )}
+                            <span>{report.reporter?.fullName || 'Unknown User'}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="description-cell" title={report.description}>
+                            {report.description?.length > 50 
+                              ? `${report.description.substring(0, 50)}...` 
+                              : report.description || 'No description'}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="date-cell">
+                            <FontAwesomeIcon icon={faCalendarAlt} />
+                            {getTimeAgo(report.createdAt)}
+                          </div>
+                        </td>
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <div className="action-buttons">
+                            <button 
+                              className="action-btn view"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleViewFullDetails(report);
+                              }}
+                              title="View Details"
+                            >
+                              <FontAwesomeIcon icon={faEye} />
+                            </button>
+                            <button 
+                              className="action-btn update"
+                              onClick={(e) => handleUpdateClick(e, report)}
+                              title="Update Status"
+                            >
+                              <FontAwesomeIcon icon={faCheck} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -845,7 +935,7 @@ const Reports: React.FC = () => {
         </div>
       )}
     </div>
-  ); 
+  );
 };
 
 export default Reports;

@@ -1,9 +1,9 @@
+// hooks/useAdminNotifications.ts - FIXED socket handlers
+
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { AdminNotificationsService } from '../services/admin.notifications.service';
-import type { 
-  AdminNotification, 
-  NotificationFilters,
-} from '../services/admin.notifications.service';
+import { adminSocket } from '../services/adminSocket';
+import type { AdminNotification, NotificationFilters } from '../services/admin.notifications.service';
 
 export function useAdminNotifications() {
   const [loading, setLoading] = useState(true);
@@ -20,9 +20,19 @@ export function useAdminNotifications() {
     page: 1, 
     limit: 10 
   });
+  const [hasNewNotification, setHasNewNotification] = useState(false);
 
-  // Refs to track initial load
   const initialLoadDoneRef = useRef(false);
+  const tokenRef = useRef<string | null>(null);
+
+  // Get token from localStorage
+  useEffect(() => {
+    const token = localStorage.getItem('adminToken');
+    if (token) {
+      tokenRef.current = token;
+      adminSocket.connect(token);
+    }
+  }, []);
 
   // Fetch notifications function
   const fetchNotifications = useCallback(async (filters: NotificationFilters) => {
@@ -37,6 +47,7 @@ export function useAdminNotifications() {
         setPagination(result.data.pagination);
         setUnreadCount(result.data.unreadCount);
         setError(null);
+        setHasNewNotification(false);
       } else {
         setError(result.message || 'Failed to fetch notifications');
       }
@@ -59,6 +70,83 @@ export function useAdminNotifications() {
     }
   }, []);
 
+  // ========== REAL-TIME SOCKET LISTENERS ==========
+  useEffect(() => {
+    // ✅ FIXED: Properly typed handlers that match EventCallback signature
+    const handleNewNotification = (...args: unknown[]) => {
+      const notification = args[0] as AdminNotification;
+      console.log('📢 Real-time: New admin notification', notification);
+      
+      // Add to notifications list
+      setNotifications(prev => [notification, ...prev]);
+      
+      if (!notification.read) {
+        setUnreadCount(prev => prev + 1);
+        setHasNewNotification(true);
+      }
+      
+      // Update pagination total
+      setPagination(prev => ({
+        ...prev,
+        total: prev.total + 1,
+        pages: Math.ceil((prev.total + 1) / prev.limit)
+      }));
+      
+      // Show browser notification
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(notification.title, {
+          body: notification.message,
+          icon: '/favicon.ico'
+        });
+      }
+    };
+    
+    const handleNotificationStatusChanged = (...args: unknown[]) => {
+      const data = args[0] as { notificationId: string; read: boolean };
+      console.log('📢 Real-time: Notification status changed', data);
+      
+      setNotifications(prev => prev.map(n => 
+        n.id === data.notificationId ? { ...n, read: data.read } : n
+      ));
+      
+      if (data.read) {
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      } else {
+        setUnreadCount(prev => prev + 1);
+      }
+    };
+    
+    const handleNotificationDeleted = (...args: unknown[]) => {
+      const data = args[0] as { notificationId: string };
+      console.log('📢 Real-time: Notification deleted', data);
+      
+      setNotifications(prev => prev.filter(n => n.id !== data.notificationId));
+      setPagination(prev => ({
+        ...prev,
+        total: Math.max(0, prev.total - 1),
+        pages: Math.ceil(Math.max(0, prev.total - 1) / prev.limit)
+      }));
+    };
+    
+    // Register listeners
+    adminSocket.on('admin:notification:new', handleNewNotification);
+    adminSocket.on('admin:notification:status', handleNotificationStatusChanged);
+    adminSocket.on('admin:notification:deleted', handleNotificationDeleted);
+    
+    return () => {
+      adminSocket.off('admin:notification:new', handleNewNotification);
+      adminSocket.off('admin:notification:status', handleNotificationStatusChanged);
+      adminSocket.off('admin:notification:deleted', handleNotificationDeleted);
+    };
+  }, []);
+
+  // Request notification permission on mount
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
   // Mark as read
   const markAsRead = useCallback(async (notificationId: string) => {
     console.log('📥 markAsRead:', notificationId);
@@ -73,13 +161,11 @@ export function useAdminNotifications() {
       const result = await AdminNotificationsService.markAsRead(notificationId);
       
       if (!result.success) {
-        // Revert on failure
         await fetchNotifications(currentFilters);
         await fetchUnreadCount();
       }
     } catch (error) {
-         console.error('❌ Failed to mark as read:', error);
-      // Revert on error
+      console.error('❌ Failed to mark as read:', error);
       await fetchNotifications(currentFilters);
       await fetchUnreadCount();
     }
@@ -99,7 +185,7 @@ export function useAdminNotifications() {
         await fetchUnreadCount();
       }
     } catch (error) {
-         console.error('❌ Failed to mark as read:', error);
+      console.error('❌ Failed to mark all as read:', error);
       setUnreadCount(previousUnreadCount);
       await fetchNotifications(currentFilters);
       await fetchUnreadCount();
@@ -108,7 +194,6 @@ export function useAdminNotifications() {
 
   // Delete notification
   const deleteNotification = useCallback(async (notificationId: string) => {
-    // Optimistic update
     const deletedNotification = notifications.find(n => n.id === notificationId);
     setNotifications(prev => prev.filter(n => n.id !== notificationId));
     
@@ -124,7 +209,7 @@ export function useAdminNotifications() {
         await fetchUnreadCount();
       }
     } catch (error) {
-         console.error('❌ Failed to mark as read:', error);
+      console.error('❌ Failed to delete notification:', error);
       await fetchNotifications(currentFilters);
       await fetchUnreadCount();
     }
@@ -142,7 +227,7 @@ export function useAdminNotifications() {
         await fetchUnreadCount();
       }
     } catch (error) {
-         console.error('❌ Failed to mark as read:', error);
+      console.error('❌ Failed to delete all read:', error);
       await fetchNotifications(currentFilters);
       await fetchUnreadCount();
     }
@@ -158,14 +243,13 @@ export function useAdminNotifications() {
     console.log('🔄 Updating filters:', filters);
     setCurrentFilters(prev => {
       const newFilters = { ...prev, ...filters };
-      // Fetch immediately with new filters
       fetchNotifications(newFilters);
       fetchUnreadCount();
       return newFilters;
     });
   }, [fetchNotifications, fetchUnreadCount]);
 
-  // Initial load - only run once
+  // Initial load
   useEffect(() => {
     if (!initialLoadDoneRef.current) {
       initialLoadDoneRef.current = true;
@@ -177,9 +261,10 @@ export function useAdminNotifications() {
   return {
     notifications,
     loading,
-    error, // Keep error in return even if not used in component (it might be used)
+    error,
     unreadCount,
     pagination,
+    hasNewNotification,
     markAsRead,
     markAllAsRead,
     deleteNotification,

@@ -1,3 +1,5 @@
+// pages/Notifications.tsx - FIXED useEffect for toast without setState warning
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAdminNotifications } from '../hooks/useAdminNotifications';
@@ -14,6 +16,7 @@ const Notifications = () => {
     error,
     unreadCount,
     pagination,
+    hasNewNotification,
     markAsRead,
     markAllAsRead, 
     deleteNotification,
@@ -23,7 +26,6 @@ const Notifications = () => {
     currentFilters
   } = useAdminNotifications();
 
-  // Initialize state with safe defaults
   const [filter, setFilter] = useState<'all' | 'unread' | 'read'>(
     currentFilters?.read === undefined ? 'all' : currentFilters.read ? 'read' : 'unread'
   );
@@ -31,10 +33,50 @@ const Notifications = () => {
   const [selectAll, setSelectAll] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(currentFilters?.page || 1);
+  const [toastMessage, setToastMessage] = useState<{ title: string; message: string; id: string } | null>(null);
   
-  // Refs
-  const filterTimeoutRef = useRef<number|undefined>(undefined);
+  const filterTimeoutRef = useRef<number | undefined>(undefined);
   const isUpdatingRef = useRef(false);
+  const toastTimeoutRef = useRef<number | undefined>(undefined);
+  const lastShownNotificationIdRef = useRef<string | null>(null);
+  const pendingToastRef = useRef<{ id: string; title: string; message: string } | null>(null);
+
+  // ✅ FIXED: Use a ref to store pending toast and update in a separate useEffect
+  useEffect(() => {
+    if (hasNewNotification && !loading && notifications.length > 0 && filter === 'all') {
+      const newest = notifications[0];
+      
+      // Only store pending toast if it's a NEW notification
+      if (newest && newest.id !== lastShownNotificationIdRef.current) {
+        lastShownNotificationIdRef.current = newest.id;
+        
+        // Store in ref instead of calling setState directly
+        pendingToastRef.current = {
+          id: newest.id,
+          title: newest.title,
+          message: newest.message.length > 100 ? newest.message.substring(0, 100) + '...' : newest.message
+        };
+      }
+    }
+  }, [hasNewNotification, notifications, loading, filter]);
+
+  // ✅ Separate effect to actually set the toast state
+  useEffect(() => {
+    if (pendingToastRef.current) {
+      const toast = pendingToastRef.current;
+      pendingToastRef.current = null;
+      
+      setToastMessage(toast);
+      
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = setTimeout(() => {
+        setToastMessage(null);
+        setTimeout(() => {
+          lastShownNotificationIdRef.current = null;
+        }, 1000);
+      }, 5000);
+    }
+  }, [notifications]); // Run when notifications change
 
   // Update filters when page or filter changes
   useEffect(() => {
@@ -71,16 +113,18 @@ const Notifications = () => {
     console.log('🔄 Filter changed to:', newFilter);
     setFilter(newFilter);
     setCurrentPage(1);
-    // Clear selections when filter changes
     setSelectedIds([]);
     setSelectAll(false);
+    setToastMessage(null);
+    lastShownNotificationIdRef.current = null;
+    pendingToastRef.current = null;
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
   }, []);
 
   const handlePageChange = useCallback((newPage: number) => {
     if (newPage === currentPage) return;
     console.log('📄 Page changed to:', newPage);
     setCurrentPage(newPage);
-    // Clear selections when page changes
     setSelectedIds([]);
     setSelectAll(false);
   }, [currentPage]);
@@ -254,11 +298,25 @@ const Notifications = () => {
 
   return (
     <div className="notifications-wrapper">
+      {/* Toast notification for new items */}
+      {toastMessage && (
+        <div className="notifications-toast" key={toastMessage.id}>
+          <div className="toast-content">
+            <strong>{toastMessage.title}</strong>
+            <span>{toastMessage.message}</span>
+          </div>
+          <button className="toast-close" onClick={() => setToastMessage(null)}>×</button>
+        </div>
+      )}
+
       <div className="notifications-container">
         {/* Header */}
         <div className="notifications-header">
           <div className="notifications-header-left">
-            <h1 className="notifications-title">Notifications</h1>
+            <h1 className="notifications-title">
+              Notifications
+              {hasNewNotification && <span className="notifications-new-badge">●</span>}
+            </h1>
             <p className="notifications-subtitle">
               {unreadCount} unread {unreadCount === 1 ? 'notification' : 'notifications'}
             </p>
@@ -328,7 +386,7 @@ const Notifications = () => {
         {error && <ErrorDisplay message={error} onRetry={refreshNotifications} />}
 
         {/* Loading overlay */}
-        {loading && (
+        {loading && notifications.length > 0 && (
           <div className="notifications-loading-overlay">
             <div className="notifications-spinner"></div>
           </div>
@@ -441,8 +499,8 @@ const Notifications = () => {
                     </div>
                   </div>
                 );
-              })}
-            </div>
+              })} 
+            </div> 
 
             {/* Pagination */}
             {pagination.pages > 1 && (

@@ -1,6 +1,8 @@
-// pages/Feedback.tsx - COMPLETE WITH FILTERED STATS
+// pages/Feedback.tsx - COMPLETE WITH REAL-TIME UPDATES
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAdminFeedback } from '../hooks/useAdminFeedback';
+import { adminSocket } from '../services/adminSocket';
 import FeedbackModal from '../components/FeedbackModal';
 import LoadingScreen from '../components/LoadingScreen';
 import ErrorDisplay from '../components/ErrorDisplay';
@@ -21,7 +23,7 @@ const Feedback: React.FC = () => {
     feedback,
     loading,
     error,
-    filteredStats, // Use filteredStats instead of globalStats
+    filteredStats,
     pagination,
     actionLoading,
     fetchFeedback,
@@ -39,16 +41,19 @@ const Feedback: React.FC = () => {
   const [searchInput, setSearchInput] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [refreshing, setRefreshing] = useState(false);
+  const [hasNewFeedback, setHasNewFeedback] = useState(false);
+  const [toastMessage, setToastMessage] = useState<{ id: string; title: string; message: string } | null>(null);
   
-  // Modal states
   const [selectedFeedback, setSelectedFeedback] = useState<FeedbackDetails | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
-  // Track initial loads
   const initialLoadDoneRef = useRef(false);
   const fetchInProgressRef = useRef(false);
+  const toastTimeoutRef = useRef<number | undefined>(undefined);
+  const lastShownFeedbackIdRef = useRef<string | null>(null);
+  const pendingToastRef = useRef<{ id: string; title: string; message: string } | null>(null);
 
   // ===== Helper to build API filters =====
   const buildApiFilters = useCallback((customFilters?: Partial<LocalFeedbackFilters>): FeedbackFilters => {
@@ -82,12 +87,13 @@ const Feedback: React.FC = () => {
       const apiFilters = buildApiFilters(filterParams);
       console.log('🚀 [Feedback] Loading feedback with filters:', apiFilters);
       await fetchFeedback(apiFilters);
-      
-      // Also fetch filtered stats with the same filters
       await fetchFilteredStats({
         status: apiFilters.status,
         search: apiFilters.search
       });
+      
+      // Reset new feedback indicator after refresh
+      setHasNewFeedback(false);
     } finally {
       fetchInProgressRef.current = false;
     }
@@ -101,6 +107,105 @@ const Feedback: React.FC = () => {
       loadFeedback();
     }
   }, [loadFeedback]);
+
+  // ===== REAL-TIME SOCKET LISTENERS =====
+  useEffect(() => {
+    const handleNewFeedback = (...args: unknown[]) => {
+      const data = args[0] as { feedbackId: string; type: string; userName: string; message: string };
+      console.log('📢 Real-time: New feedback received', data);
+      
+      // Only show toast if on "all" filter or if the new feedback matches current filter
+      if (!statusFilter || statusFilter === '') {
+        if (data.feedbackId !== lastShownFeedbackIdRef.current) {
+          lastShownFeedbackIdRef.current = data.feedbackId;
+          
+          pendingToastRef.current = {
+            id: data.feedbackId,
+            title: `New ${data.type} Feedback`,
+            message: `${data.userName}: ${data.message.substring(0, 100)}${data.message.length > 100 ? '...' : ''}`
+          };
+        }
+      }
+      
+      // Refresh the list
+      loadFeedback(filters);
+      setHasNewFeedback(true);
+    };
+    
+    const handleFeedbackStatusChanged = (...args: unknown[]) => {
+      const data = args[0] as { feedbackId: string; oldStatus: string; newStatus: string };
+      console.log('📢 Real-time: Feedback status changed', data);
+      
+      // Refresh the list
+      loadFeedback(filters);
+      
+      // If modal is open for this feedback, refresh details
+      if (selectedFeedback?.id === data.feedbackId) {
+        getFeedbackDetails(data.feedbackId).then(result => {
+          if (result.success && result.data) {
+            setSelectedFeedback(result.data);
+          }
+        });
+      }
+    };
+    
+    const handleFeedbackUpdated = (...args: unknown[]) => {
+      console.log('📢 Real-time: Feedback updated', args[0]);
+      loadFeedback(filters);
+      
+      // Refresh modal if open
+      if (selectedFeedback) {
+        getFeedbackDetails(selectedFeedback.id).then(result => {
+          if (result.success && result.data) {
+            setSelectedFeedback(result.data);
+          }
+        });
+      }
+    };
+    
+    const handleFeedbackDeleted = (...args: unknown[]) => {
+      const data = args[0] as { feedbackId: string };
+      console.log('📢 Real-time: Feedback deleted', data);
+      loadFeedback(filters);
+      
+      // Close modal if the deleted feedback is currently open
+      if (selectedFeedback?.id === data.feedbackId) {
+        setShowModal(false);
+        setSelectedFeedback(null);
+      }
+    };
+    
+    // Register listeners
+    adminSocket.on('feedback:new', handleNewFeedback);
+    adminSocket.on('feedback:status', handleFeedbackStatusChanged);
+    adminSocket.on('feedback:updated', handleFeedbackUpdated);
+    adminSocket.on('feedback:deleted', handleFeedbackDeleted);
+    
+    return () => {
+      adminSocket.off('feedback:new', handleNewFeedback);
+      adminSocket.off('feedback:status', handleFeedbackStatusChanged);
+      adminSocket.off('feedback:updated', handleFeedbackUpdated);
+      adminSocket.off('feedback:deleted', handleFeedbackDeleted);
+    };
+  }, [filters, statusFilter, loadFeedback, selectedFeedback, getFeedbackDetails]);
+
+  // ===== Show toast for new feedback =====
+  useEffect(() => {
+    if (pendingToastRef.current) {
+      const toast = pendingToastRef.current;
+      pendingToastRef.current = null;
+      
+      setToastMessage(toast);
+      
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = setTimeout(() => {
+        setToastMessage(null);
+        setTimeout(() => {
+          lastShownFeedbackIdRef.current = null;
+        }, 1000);
+      }, 5000);
+    }
+  }, [feedback]); // Re-run when feedback changes
 
   // ===== Handlers =====
   const handleSearch = () => {
@@ -133,6 +238,7 @@ const Feedback: React.FC = () => {
       search: searchInput || undefined
     }).finally(() => {
       setRefreshing(false);
+      setHasNewFeedback(false);
     });
   };
 
@@ -142,6 +248,7 @@ const Feedback: React.FC = () => {
     setStatusFilter(status);
     setFilters(newFilters);
     loadFeedback(newFilters);
+    setHasNewFeedback(false);
   };
 
   const clearFilters = () => {
@@ -151,6 +258,7 @@ const Feedback: React.FC = () => {
     const newFilters = { page: 1, limit: 10 };
     setFilters(newFilters);
     loadFeedback(newFilters);
+    setHasNewFeedback(false);
   };
 
   const handleViewFeedback = async (feedbackId: string) => {
@@ -176,29 +284,27 @@ const Feedback: React.FC = () => {
       setSelectedRowId(null);
     }
   };
-const handleUpdateStatus = async (status: string) => {
-  if (!selectedFeedback) return;
-  
-  const result = await updateStatus(selectedFeedback.id, status);
-  if (result.success) {
-    // First, refresh the list and stats
-    await loadFeedback(); // This already fetches filtered stats internally
+
+  const handleUpdateStatus = async (status: string) => {
+    if (!selectedFeedback) return;
     
-    // Then get fresh details
-    const updatedDetails = await getFeedbackDetails(selectedFeedback.id);
-    if (updatedDetails.success && updatedDetails.data) {
-      setSelectedFeedback(updatedDetails.data);
-      // Keep modal open briefly to show updated data
-      setTimeout(() => {
+    const result = await updateStatus(selectedFeedback.id, status);
+    if (result.success) {
+      await loadFeedback();
+      
+      const updatedDetails = await getFeedbackDetails(selectedFeedback.id);
+      if (updatedDetails.success && updatedDetails.data) {
+        setSelectedFeedback(updatedDetails.data);
+        setTimeout(() => {
+          setShowModal(false);
+          setSelectedFeedback(null);
+        }, 500);
+      } else {
         setShowModal(false);
         setSelectedFeedback(null);
-      }, 500);
-    } else {
-      setShowModal(false);
-      setSelectedFeedback(null);
+      }
     }
-  }
-};
+  };
 
   const closeModal = () => {
     setShowModal(false);
@@ -238,11 +344,25 @@ const handleUpdateStatus = async (status: string) => {
 
   return (
     <div className="feedback-wrapper">
+      {/* Toast notification for new feedback */}
+      {toastMessage && (
+        <div className="feedback-toast" key={toastMessage.id}>
+          <div className="toast-content">
+            <strong>{toastMessage.title}</strong>
+            <span>{toastMessage.message}</span>
+          </div>
+          <button className="toast-close" onClick={() => setToastMessage(null)}>×</button>
+        </div>
+      )}
+
       <div className="feedback-container">
         {/* Header */}
         <div className="feedback-header">
           <div className="feedback-header-left">
-            <h1>Feedback Management</h1>
+            <h1>
+              Feedback Management
+              {hasNewFeedback && <span className="feedback-new-badge">●</span>}
+            </h1>
             <p>View and manage user feedback</p>
           </div>
           <button 
@@ -258,7 +378,7 @@ const handleUpdateStatus = async (status: string) => {
           </button>
         </div>
 
-        {/* Stats Cards - Now using filteredStats */}
+        {/* Stats Cards */}
         {filteredStats && (
           <div className="feedback-stats">
             <div 
