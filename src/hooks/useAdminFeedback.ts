@@ -4,8 +4,8 @@ import { AdminFeedbackService } from '../services/admin.feedback.service';
 import type { 
   Feedback, 
   FeedbackFilters,  
-  FeedbackStats, 
-  FeedbackDetailsResponse,
+  FeedbackStats,  
+  FeedbackDetailsResponse, 
   UpdateStatusResponse,
   DeleteResponse
 } from '../services/admin.feedback.service';

@@ -1,4 +1,4 @@
-// pages/Reports.tsx - FULLY UPDATED WITH REAL-TIME
+// pages/Reports.tsx - FULLY CORRECTED with sequential status workflow
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Report, ReportFilters } from '../services/admin.report.services';
@@ -78,8 +78,7 @@ interface ReportStatusSocketData {
   resolvedAt: string;
 }
 
-
-// Safe Image Component to handle broken avatar URLs
+// Safe Image Component
 const SafeImage = ({ src, className, fallbackChar }: { src: string; className: string; fallbackChar: string }) => {
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -105,6 +104,22 @@ const SafeImage = ({ src, className, fallbackChar }: { src: string; className: s
       alt=""
     />
   );
+};
+
+// ✅ Get allowed next statuses (sequential workflow - cannot go backwards)
+const getAllowedNextStatuses = (currentStatus: string): string[] => {
+  switch (currentStatus) {
+    case 'PENDING':
+      return ['REVIEWING', 'RESOLVED', 'DISMISSED'];
+    case 'REVIEWING':
+      return ['RESOLVED', 'DISMISSED'];
+    case 'RESOLVED':
+      return ['DISMISSED'];
+    case 'DISMISSED':
+      return [];
+    default:
+      return ['PENDING', 'REVIEWING', 'RESOLVED', 'DISMISSED'];
+  }
 };
 
 const Reports: React.FC = () => {
@@ -148,6 +163,8 @@ const Reports: React.FC = () => {
       const queryFilters = { ...apiFilters };
       if (queryFilters.status === 'ALL') delete queryFilters.status;
       
+      console.log('📥 Fetching reports with filters:', queryFilters);
+      
       const result = await AdminReportsService.getReports(queryFilters);
       
       if (result.success) {
@@ -178,43 +195,52 @@ const Reports: React.FC = () => {
     }
   }, []);
 
-  
-useEffect(() => {
-  // ✅ Fix: Use rest parameters to match EventCallback signature
-  const handleNewReport = (...args: unknown[]) => {
-    const data = args[0] as NewReportSocketData;
-    console.log('📢 Real-time: New report received', data);
-    
-    if (data.reportId !== lastShownReportIdRef.current) {
-      lastShownReportIdRef.current = data.reportId;
+  // ===== REAL-TIME SOCKET LISTENERS =====
+  useEffect(() => {
+    const handleNewReport = (...args: unknown[]) => {
+      const data = args[0] as NewReportSocketData;
+      console.log('📢 Real-time: New report received', data);
       
-      pendingToastRef.current = {
-        id: data.reportId,
-        title: '🚨 New Report',
-        message: `${data.reporterName} reported "${data.groupName}" for ${data.reportType?.replace(/_/g, ' ') || 'unknown'}`
-      };
-    }
+      if (data.reportId !== lastShownReportIdRef.current) {
+        lastShownReportIdRef.current = data.reportId;
+        
+        pendingToastRef.current = {
+          id: data.reportId,
+          title: '🚨 New Report',
+          message: `${data.reporterName} reported "${data.groupName}" for ${data.reportType?.replace(/_/g, ' ') || 'unknown'}`
+        };
+      }
+      
+      fetchReports(filters);
+      fetchStats();
+      setHasNewReport(true);
+    };
     
-    fetchReports(filters);
-    fetchStats();
-    setHasNewReport(true);
-  };
-  
-  const handleReportStatusChanged = (...args: unknown[]) => {
-    const data = args[0] as ReportStatusSocketData;
-    console.log('📢 Real-time: Report status changed', data);
-    fetchReports(filters);
-    fetchStats();
-  };
-  
-  adminSocket.on('report:new', handleNewReport);
-  adminSocket.on('report:status', handleReportStatusChanged);
-  
-  return () => {
-    adminSocket.off('report:new', handleNewReport);
-    adminSocket.off('report:status', handleReportStatusChanged);
-  };
-}, [filters, fetchReports, fetchStats]);
+    const handleReportStatusChanged = (...args: unknown[]) => {
+      const data = args[0] as ReportStatusSocketData;
+      console.log('📢 Real-time: Report status changed', data);
+      
+      fetchReports(filters);
+      fetchStats();
+      
+      if (selectedReport?.id === data.reportId) {
+        AdminReportsService.getReportById(data.reportId).then(result => {
+          if (result.success && result.report) {
+            setSelectedReport(result.report);
+          }
+        });
+      }
+    };
+    
+    adminSocket.on('report:new', handleNewReport);
+    adminSocket.on('report:status', handleReportStatusChanged);
+    
+    return () => {
+      adminSocket.off('report:new', handleNewReport);
+      adminSocket.off('report:status', handleReportStatusChanged);
+    };
+  }, [filters, fetchReports, fetchStats, selectedReport]);
+
   // ===== Show toast for new report =====
   useEffect(() => {
     if (pendingToastRef.current) {
@@ -293,6 +319,7 @@ useEffect(() => {
     setShowUpdateModal(true);
   };
 
+  // ✅ Update status with sequential workflow
   const handleUpdateStatus = async () => {
     if (!selectedReport) return;
     
@@ -307,26 +334,24 @@ useEffect(() => {
       if (result.success) {
         setShowUpdateModal(false);
         
-        // Refresh data with current filters
         await fetchReports(filters);
         await fetchStats();
+        
+        setToastMessage({
+          id: Date.now().toString(),
+          title: '✅ Status Updated',
+          message: `Report status changed to ${updateStatus}`
+        });
+        
+        setTimeout(() => {
+          setToastMessage(null);
+        }, 3000);
         
         setSelectedReport(null);
         setSelectedRowId(null);
         setUpdateStatus('');
         setUpdateNotes('');
         
-        alert(`Report status updated to ${updateStatus}`);
-        
-        // If the report no longer matches current filter, offer to switch
-        const currentFilter = filters.status;
-        if (currentFilter !== 'ALL' && currentFilter !== updateStatus) {
-          if (window.confirm('Report updated. Switch to "All Reports" view to see it?')) {
-            const newFilters = { ...filters, status: 'ALL', page: 1 };
-            setFilters(newFilters);
-            await fetchReports(newFilters);
-          }
-        }
       } else {
         alert(result.message || 'Failed to update report');
       }
@@ -465,7 +490,7 @@ useEffect(() => {
 
   return (
     <div className="reports-page">
-      {/* Toast notification for new reports */}
+      {/* Toast notification */}
       {toastMessage && (
         <div className="reports-toast" key={toastMessage.id}>
           <div className="toast-content">
@@ -884,7 +909,7 @@ useEffect(() => {
         </div>
       )}
 
-      {/* Update Modal */}
+      {/* Update Modal - WITH SEQUENTIAL STATUS OPTIONS */}
       {showUpdateModal && selectedReport && (
         <div className="modal-overlay" onClick={closeUpdateModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -896,17 +921,33 @@ useEffect(() => {
             </div>
             <div className="modal-body">
               <div className="form-group">
-                <label>Status</label>
+                <label>Current Status</label>
+                <div className="current-status-display">
+                  <span className={`status-badge ${getStatusBadgeClass(selectedReport.status)}`}>
+                    <FontAwesomeIcon icon={getStatusIcon(selectedReport.status)} />
+                    {selectedReport.status}
+                  </span>
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Change Status To</label>
                 <select 
                   value={updateStatus} 
                   onChange={(e) => setUpdateStatus(e.target.value)}
                   className="form-control"
                 >
-                  <option value="PENDING">Pending</option>
-                  <option value="REVIEWING">Reviewing</option>
-                  <option value="RESOLVED">Resolved</option>
-                  <option value="DISMISSED">Dismissed</option>
+                  <option value="">Select new status...</option>
+                  {getAllowedNextStatuses(selectedReport.status).map(status => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
                 </select>
+                {getAllowedNextStatuses(selectedReport.status).length === 0 && (
+                  <p className="form-hint" style={{ color: '#fa5252', marginTop: 8 }}>
+                    This report is in a terminal state and cannot be changed.
+                  </p>
+                )}
               </div>
               <div className="form-group">
                 <label>Resolution Notes</label>
@@ -926,9 +967,9 @@ useEffect(() => {
               <button 
                 className="modal-confirm"
                 onClick={handleUpdateStatus}
-                disabled={submitting}
+                disabled={submitting || !updateStatus || getAllowedNextStatuses(selectedReport.status).length === 0}
               >
-                {submitting ? 'Updating...' : 'Update'}
+                {submitting ? 'Updating...' : 'Update Status'}
               </button>
             </div>
           </div>

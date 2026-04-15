@@ -1,4 +1,4 @@
-// pages/Feedback.tsx - COMPLETE WITH REAL-TIME UPDATES
+// pages/Feedback.tsx - FIXED: Use globalStats for stat cards
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAdminFeedback } from '../hooks/useAdminFeedback';
@@ -23,7 +23,7 @@ const Feedback: React.FC = () => {
     feedback,
     loading,
     error,
-    filteredStats,
+    globalStats,  // ← ADD THIS - for stat cards that don't change
     pagination,
     actionLoading,
     fetchFeedback,
@@ -56,26 +56,44 @@ const Feedback: React.FC = () => {
   const pendingToastRef = useRef<{ id: string; title: string; message: string } | null>(null);
 
   // ===== Helper to build API filters =====
-  const buildApiFilters = useCallback((customFilters?: Partial<LocalFeedbackFilters>): FeedbackFilters => {
+  const buildApiFilters = useCallback((
+    customFilters?: Partial<LocalFeedbackFilters>,
+    statusOverride?: string,
+    searchOverride?: string
+  ): FeedbackFilters => {
     const currentFilters = customFilters || filters;
     const apiFilters: FeedbackFilters = { 
       page: currentFilters.page,
       limit: currentFilters.limit,
     };
     
-    if (currentFilters.status) {
-      apiFilters.status = currentFilters.status;
+    const activeStatus = statusOverride !== undefined ? statusOverride : statusFilter;
+    if (activeStatus && activeStatus !== '') {
+      apiFilters.status = activeStatus;
     }
     
-    if (currentFilters.search) {
-      apiFilters.search = currentFilters.search;
+    const activeSearch = searchOverride !== undefined ? searchOverride : searchInput;
+    if (activeSearch && activeSearch.trim() !== '') {
+      apiFilters.search = activeSearch;
     }
+    
+    console.log('🔧 [Feedback] Building API filters:', { 
+      originalFilters: currentFilters,
+      statusOverride,
+      statusFilter, 
+      searchInput,
+      result: apiFilters 
+    });
     
     return apiFilters;
-  }, [filters]);
+  }, [filters, statusFilter, searchInput]);
 
-  // ===== Load feedback with explicit filters =====
-  const loadFeedback = useCallback(async (filterParams?: Partial<LocalFeedbackFilters>) => {
+  // ===== Load feedback =====
+  const loadFeedback = useCallback(async (
+    filterParams?: Partial<LocalFeedbackFilters>,
+    statusOverride?: string,
+    searchOverride?: string
+  ) => {
     if (fetchInProgressRef.current) {
       console.log('⏭️ [Feedback] Skipping fetch - already in progress');
       return;
@@ -84,16 +102,23 @@ const Feedback: React.FC = () => {
     fetchInProgressRef.current = true;
     
     try {
-      const apiFilters = buildApiFilters(filterParams);
+      const apiFilters = buildApiFilters(filterParams, statusOverride, searchOverride);
       console.log('🚀 [Feedback] Loading feedback with filters:', apiFilters);
-      await fetchFeedback(apiFilters);
+      
+      const result = await fetchFeedback(apiFilters);
+      
       await fetchFilteredStats({
         status: apiFilters.status,
         search: apiFilters.search
       });
       
-      // Reset new feedback indicator after refresh
       setHasNewFeedback(false);
+      
+      if (!result?.success) {
+        console.error('❌ [Feedback] Failed to load:', result?.message);
+      }
+    } catch (err) {
+      console.error('❌ [Feedback] Error loading feedback:', err);
     } finally {
       fetchInProgressRef.current = false;
     }
@@ -114,11 +139,9 @@ const Feedback: React.FC = () => {
       const data = args[0] as { feedbackId: string; type: string; userName: string; message: string };
       console.log('📢 Real-time: New feedback received', data);
       
-      // Only show toast if on "all" filter or if the new feedback matches current filter
       if (!statusFilter || statusFilter === '') {
         if (data.feedbackId !== lastShownFeedbackIdRef.current) {
           lastShownFeedbackIdRef.current = data.feedbackId;
-          
           pendingToastRef.current = {
             id: data.feedbackId,
             title: `New ${data.type} Feedback`,
@@ -127,8 +150,7 @@ const Feedback: React.FC = () => {
         }
       }
       
-      // Refresh the list
-      loadFeedback(filters);
+      loadFeedback(undefined, statusFilter, searchInput);
       setHasNewFeedback(true);
     };
     
@@ -136,10 +158,8 @@ const Feedback: React.FC = () => {
       const data = args[0] as { feedbackId: string; oldStatus: string; newStatus: string };
       console.log('📢 Real-time: Feedback status changed', data);
       
-      // Refresh the list
-      loadFeedback(filters);
+      loadFeedback(undefined, statusFilter, searchInput);
       
-      // If modal is open for this feedback, refresh details
       if (selectedFeedback?.id === data.feedbackId) {
         getFeedbackDetails(data.feedbackId).then(result => {
           if (result.success && result.data) {
@@ -151,9 +171,8 @@ const Feedback: React.FC = () => {
     
     const handleFeedbackUpdated = (...args: unknown[]) => {
       console.log('📢 Real-time: Feedback updated', args[0]);
-      loadFeedback(filters);
+      loadFeedback(undefined, statusFilter, searchInput);
       
-      // Refresh modal if open
       if (selectedFeedback) {
         getFeedbackDetails(selectedFeedback.id).then(result => {
           if (result.success && result.data) {
@@ -166,16 +185,14 @@ const Feedback: React.FC = () => {
     const handleFeedbackDeleted = (...args: unknown[]) => {
       const data = args[0] as { feedbackId: string };
       console.log('📢 Real-time: Feedback deleted', data);
-      loadFeedback(filters);
+      loadFeedback(undefined, statusFilter, searchInput);
       
-      // Close modal if the deleted feedback is currently open
       if (selectedFeedback?.id === data.feedbackId) {
         setShowModal(false);
         setSelectedFeedback(null);
       }
     };
     
-    // Register listeners
     adminSocket.on('feedback:new', handleNewFeedback);
     adminSocket.on('feedback:status', handleFeedbackStatusChanged);
     adminSocket.on('feedback:updated', handleFeedbackUpdated);
@@ -187,7 +204,7 @@ const Feedback: React.FC = () => {
       adminSocket.off('feedback:updated', handleFeedbackUpdated);
       adminSocket.off('feedback:deleted', handleFeedbackDeleted);
     };
-  }, [filters, statusFilter, loadFeedback, selectedFeedback, getFeedbackDetails]);
+  }, [statusFilter, searchInput, loadFeedback, selectedFeedback, getFeedbackDetails]);
 
   // ===== Show toast for new feedback =====
   useEffect(() => {
@@ -205,14 +222,14 @@ const Feedback: React.FC = () => {
         }, 1000);
       }, 5000);
     }
-  }, [feedback]); // Re-run when feedback changes
+  }, [feedback]);
 
   // ===== Handlers =====
   const handleSearch = () => {
     console.log('🔍 [Feedback] Search triggered:', searchInput);
-    const newFilters = { ...filters, page: 1, search: searchInput };
+    const newFilters = { ...filters, page: 1 };
     setFilters(newFilters);
-    loadFeedback(newFilters);
+    loadFeedback(newFilters, statusFilter, searchInput);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -225,7 +242,7 @@ const Feedback: React.FC = () => {
     console.log('📄 [Feedback] Page changed:', newPage);
     const newFilters = { ...filters, page: newPage };
     setFilters(newFilters);
-    loadFeedback(newFilters);
+    loadFeedback(newFilters, statusFilter, searchInput);
   };
 
   const handleRefresh = () => {
@@ -244,10 +261,10 @@ const Feedback: React.FC = () => {
 
   const handleStatClick = (status: string) => {
     console.log('📊 [Feedback] Stat card clicked:', status);
-    const newFilters = { ...filters, page: 1, status };
     setStatusFilter(status);
+    const newFilters = { ...filters, page: 1 };
     setFilters(newFilters);
-    loadFeedback(newFilters);
+    loadFeedback(newFilters, status, searchInput);
     setHasNewFeedback(false);
   };
 
@@ -257,7 +274,7 @@ const Feedback: React.FC = () => {
     setStatusFilter('');
     const newFilters = { page: 1, limit: 10 };
     setFilters(newFilters);
-    loadFeedback(newFilters);
+    loadFeedback(newFilters, '', '');
     setHasNewFeedback(false);
   };
 
@@ -290,7 +307,7 @@ const Feedback: React.FC = () => {
     
     const result = await updateStatus(selectedFeedback.id, status);
     if (result.success) {
-      await loadFeedback();
+      await loadFeedback(undefined, statusFilter, searchInput);
       
       const updatedDetails = await getFeedbackDetails(selectedFeedback.id);
       if (updatedDetails.success && updatedDetails.data) {
@@ -344,7 +361,6 @@ const Feedback: React.FC = () => {
 
   return (
     <div className="feedback-wrapper">
-      {/* Toast notification for new feedback */}
       {toastMessage && (
         <div className="feedback-toast" key={toastMessage.id}>
           <div className="toast-content">
@@ -356,7 +372,6 @@ const Feedback: React.FC = () => {
       )}
 
       <div className="feedback-container">
-        {/* Header */}
         <div className="feedback-header">
           <div className="feedback-header-left">
             <h1>
@@ -365,11 +380,7 @@ const Feedback: React.FC = () => {
             </h1>
             <p>View and manage user feedback</p>
           </div>
-          <button 
-            className="refresh-btn" 
-            onClick={handleRefresh} 
-            disabled={refreshing}
-          >
+          <button className="refresh-btn" onClick={handleRefresh} disabled={refreshing}>
             <svg className={refreshing ? 'fa-spin' : ''} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M23 4v6h-6M1 20v-6h6" />
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
@@ -378,15 +389,15 @@ const Feedback: React.FC = () => {
           </button>
         </div>
 
-        {/* Stats Cards */}
-        {filteredStats && (
+        {/* ✅ FIXED: Stats Cards - Use globalStats (unchanging totals), not filteredStats */}
+        {globalStats && (
           <div className="feedback-stats">
             <div 
               className={`feedback-stat-card total ${statusFilter === '' ? 'active' : ''}`}
               onClick={() => handleStatClick('')}
               style={{ cursor: 'pointer' }}
             >
-              <span className="feedback-stat-value">{filteredStats.total}</span>
+              <span className="feedback-stat-value">{globalStats.total}</span>
               <span className="feedback-stat-label">Total</span>
               {statusFilter === '' && <div className="stat-active-indicator" />}
             </div>
@@ -396,7 +407,7 @@ const Feedback: React.FC = () => {
               onClick={() => handleStatClick('OPEN')}
               style={{ cursor: 'pointer' }}
             >
-              <span className="feedback-stat-value">{filteredStats.open}</span>
+              <span className="feedback-stat-value">{globalStats.open}</span>
               <span className="feedback-stat-label">Open</span>
               {statusFilter === 'OPEN' && <div className="stat-active-indicator" />}
             </div>
@@ -406,7 +417,7 @@ const Feedback: React.FC = () => {
               onClick={() => handleStatClick('IN_PROGRESS')}
               style={{ cursor: 'pointer' }}
             >
-              <span className="feedback-stat-value">{filteredStats.inProgress}</span>
+              <span className="feedback-stat-value">{globalStats.inProgress}</span>
               <span className="feedback-stat-label">In Progress</span>
               {statusFilter === 'IN_PROGRESS' && <div className="stat-active-indicator" />}
             </div>
@@ -416,7 +427,7 @@ const Feedback: React.FC = () => {
               onClick={() => handleStatClick('RESOLVED')}
               style={{ cursor: 'pointer' }}
             >
-              <span className="feedback-stat-value">{filteredStats.resolved}</span>
+              <span className="feedback-stat-value">{globalStats.resolved}</span>
               <span className="feedback-stat-label">Resolved</span>
               {statusFilter === 'RESOLVED' && <div className="stat-active-indicator" />}
             </div>
@@ -426,7 +437,7 @@ const Feedback: React.FC = () => {
               onClick={() => handleStatClick('CLOSED')}
               style={{ cursor: 'pointer' }}
             >
-              <span className="feedback-stat-value">{filteredStats.closed}</span>
+              <span className="feedback-stat-value">{globalStats.closed}</span>
               <span className="feedback-stat-label">Closed</span>
               {statusFilter === 'CLOSED' && <div className="stat-active-indicator" />}
             </div>
@@ -460,10 +471,8 @@ const Feedback: React.FC = () => {
           </div>
         </div>
 
-        {/* Error Display */}
         {error && <ErrorDisplay message={error} onRetry={handleRefresh} />}
 
-        {/* Feedback Table or Empty State */}
         {feedback.length === 0 ? (
           <div className="feedback-empty">
             <div className="feedback-empty-icon">
@@ -485,12 +494,10 @@ const Feedback: React.FC = () => {
           </div>
         ) : (
           <>
-            {/* Results Summary */}
             <div className="feedback-results-summary">
               <span>Showing {feedback.length} of {pagination.total} results</span>
             </div>
 
-            {/* Feedback Table */}
             <div className="feedback-table-container">
               <table className="feedback-table">
                 <thead>
@@ -579,7 +586,6 @@ const Feedback: React.FC = () => {
               </table>
             </div>
 
-            {/* Pagination */}
             {pagination.pages > 1 && (
               <div className="feedback-pagination">
                 <button
@@ -605,7 +611,6 @@ const Feedback: React.FC = () => {
         )}
       </div>
 
-      {/* Feedback Modal */}
       {showModal && selectedFeedback && (
         <FeedbackModal
           isOpen={showModal}

@@ -1,4 +1,5 @@
-// layouts/AdminSidebar.tsx
+// layouts/AdminSidebar.tsx - CLEANED UP (removed unused socketConnected)
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -20,7 +21,7 @@ import { useAdminAuth } from '../hooks/useAdminAuth';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
 import { AdminNotificationsService } from '../services/admin.notifications.service';
 import { AdminReportsService } from '../services/admin.report.services';
-import { adminSocket } from '../services/adminSocket';
+import { adminSocket, connectAdminSocket } from '../services/adminSocket';
 import './styles/AdminSidebar.css';
 
 interface SidebarProps {
@@ -36,10 +37,12 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   const [feedbackCount, setFeedbackCount] = useState<number>(0);
   const [notificationCount, setNotificationCount] = useState<number>(0);
   const [reportCount, setReportCount] = useState<number>(0);
+  // ✅ Removed unused socketConnected state
   
   const isMountedRef = useRef(true);
   const listenersInitializedRef = useRef(false);
-  const retryTimeoutRef = useRef<number | null>(null);
+  const retryCountRef = useRef(0);
+  const maxRetries = 10;
 
   // ========== FETCH INITIAL COUNTS ==========
   const fetchAllCounts = useCallback(async () => {
@@ -102,17 +105,19 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     }
   }, []);
 
-  // ========== SETUP REAL-TIME SOCKET LISTENERS ==========
+  // ========== SETUP SOCKET LISTENERS ==========
   const setupSocketListeners = useCallback(() => {
     if (listenersInitializedRef.current) return;
     
     // Check if socket is connected
     if (!adminSocket.isConnected) {
       console.log('⏳ [SIDEBAR] Socket not connected yet, will retry...');
-      return; // Don't retry here, let the useEffect handle retry
+      return;
     }
     
     listenersInitializedRef.current = true;
+    
+    console.log('✅ [SIDEBAR] Socket connected, setting up listeners');
     
     // Type-safe event handlers
     const handleFeedbackStatus = () => {
@@ -162,38 +167,42 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     console.log('✅ [SIDEBAR] Socket listeners initialized');
   }, [refreshFeedbackCount, refreshNotificationCount, refreshReportCount]);
 
-  // ========== INITIAL FETCH - Run once on mount ==========
+  // ========== CONNECT SOCKET AND SETUP LISTENERS ==========
   useEffect(() => {
     isMountedRef.current = true;
+    retryCountRef.current = 0;
     
-    const loadInitialCounts = async () => {
-      await fetchAllCounts();
-    };
-    
-    loadInitialCounts();
-    
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, [fetchAllCounts]);
-
-  // ========== SETUP SOCKET LISTENERS WITH RETRY ==========
-  useEffect(() => {
-    const attemptSetup = () => {
-      if (adminSocket.isConnected) {
-        setupSocketListeners();
-      } else {
-        console.log('⏳ [SIDEBAR] Socket not connected, scheduling retry...');
-        if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
-        retryTimeoutRef.current = window.setTimeout(attemptSetup, 2000);
+    const connectAndSetup = async () => {
+      try {
+        // Try to connect socket
+        await connectAdminSocket();
+        
+        // Wait a bit for connection to establish
+        setTimeout(() => {
+          if (adminSocket.isConnected) {
+            setupSocketListeners();
+          } else {
+            console.log('⏳ [SIDEBAR] Socket still not connected after connection attempt');
+            // Retry logic
+            if (retryCountRef.current < maxRetries) {
+              retryCountRef.current++;
+              setTimeout(connectAndSetup, 2000);
+            }
+          }
+        }, 500);
+      } catch (error) {
+        console.error('❌ [SIDEBAR] Socket connection error:', error);
+        if (retryCountRef.current < maxRetries) {
+          retryCountRef.current++;
+          setTimeout(connectAndSetup, 2000);
+        }
       }
     };
     
-    const timeoutId = setTimeout(attemptSetup, 1000);
+    connectAndSetup();
     
     return () => {
-      clearTimeout(timeoutId);
-      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+      isMountedRef.current = false;
       // Clean up all listeners
       adminSocket.off('feedback:status');
       adminSocket.off('feedback:deleted');
@@ -206,8 +215,23 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     };
   }, [setupSocketListeners]);
 
+  // ========== INITIAL FETCH - Run once on mount ==========
+  useEffect(() => {
+    const loadInitialCounts = async () => {
+      await fetchAllCounts();
+    };
+    
+    loadInitialCounts();
+    
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [fetchAllCounts]);
+
   // ========== REFRESH WHEN PAGE BECOMES VISIBLE ==========
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     const handleVisibilityChange = () => {
       if (!document.hidden && isMountedRef.current) {
         fetchAllCounts();
