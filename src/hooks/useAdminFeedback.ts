@@ -1,4 +1,5 @@
-// hooks/useAdminFeedback.ts - COMPLETE WITH FILTERED STATS
+// hooks/useAdminFeedback.ts - COMPLETE WITH PROPER STATS LOADING
+
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
 import type { 
@@ -28,8 +29,8 @@ export function useAdminFeedback() {
 
   const isMountedRef = useRef(true);
   const fetchCountRef = useRef(0);
-  const globalStatsFetchedRef = useRef(false);
   const fetchInProgressRef = useRef(false);
+  const statsFetchInProgressRef = useRef(false);
 
   useEffect(() => {
     console.log('🟢 [useAdminFeedback] Hook mounted');
@@ -97,14 +98,16 @@ export function useAdminFeedback() {
     }
   }, []);
 
-  // ===== FETCH GLOBAL STATISTICS =====
+  // ===== FETCH GLOBAL STATISTICS (ALWAYS FETCHES FRESH) =====
   const fetchGlobalStats = useCallback(async (force: boolean = false) => {
     console.log('📊 [useAdminFeedback] fetchGlobalStats called', force ? '(forced)' : '');
     
-    if (!force && globalStatsFetchedRef.current) {
-      console.log('⏭️ [useAdminFeedback] fetchGlobalStats skipped - already fetched once');
-      return { success: true, data: globalStats };
+    if (statsFetchInProgressRef.current) {
+      console.log('⏭️ [useAdminFeedback] Stats fetch already in progress');
+      return { success: false, message: 'Stats fetch already in progress' };
     }
+    
+    statsFetchInProgressRef.current = true;
     
     try {
       const result = await AdminFeedbackService.getFeedbackStats();
@@ -116,66 +119,71 @@ export function useAdminFeedback() {
       
       if (result.success && result.data && isMountedRef.current) {
         setGlobalStats(result.data);
-        if (!force) {
-          globalStatsFetchedRef.current = true;
-        }
         console.log('✅ [useAdminFeedback] Global statistics updated:', result.data);
         return { success: true, data: result.data };
       } else if (isMountedRef.current) {
         console.error('❌ [useAdminFeedback] Failed to fetch global stats:', result.message);
+        // Don't clear existing stats on error
         return { success: false, message: result.message };
       }
     } catch (err) {
       console.error('❌ [useAdminFeedback] Exception in fetchGlobalStats:', err);
       return { success: false, message: 'Failed to fetch global stats' };
+    } finally {
+      if (isMountedRef.current) {
+        statsFetchInProgressRef.current = false;
+      }
     }
-  }, [globalStats]);
-
- // ===== FETCH FILTERED STATISTICS =====
-const fetchFilteredStats = useCallback(async (filters?: { status?: string, type?: string, search?: string }) => {
-  console.log('📊 [useAdminFeedback] fetchFilteredStats called with filters:', filters);
-  
-  try {
-    const result = await AdminFeedbackService.getFilteredFeedbackStats(filters);
-    console.log('📦 [useAdminFeedback] getFilteredFeedbackStats response:', {
-      success: result.success,
-      hasStats: !!result.data,
-      message: result.message
-    });
     
-    if (result.success && result.data && isMountedRef.current) {
-      setFilteredStats(result.data);
-      console.log('✅ [useAdminFeedback] Filtered statistics updated:', result.data);
-      return { success: true, data: result.data };
-    } else if (isMountedRef.current) {
-      // If no data, set to zeros based on current filter
-      setFilteredStats({
-        total: 0,
-        open: 0,
-        inProgress: 0,
-        resolved: 0,
-        closed: 0,
-        byType: {}
+    return { success: false, message: 'Unknown error' };
+  }, []);
+
+  // ===== FETCH FILTERED STATISTICS =====
+  const fetchFilteredStats = useCallback(async (filters?: { status?: string, type?: string, search?: string }) => {
+    console.log('📊 [useAdminFeedback] fetchFilteredStats called with filters:', filters);
+    
+    try {
+      const result = await AdminFeedbackService.getFilteredFeedbackStats(filters);
+      console.log('📦 [useAdminFeedback] getFilteredFeedbackStats response:', {
+        success: result.success,
+        hasStats: !!result.data,
+        message: result.message
       });
-      console.error('❌ [useAdminFeedback] Failed to fetch filtered stats:', result.message);
-      return { success: false, message: result.message };
+      
+      if (result.success && result.data && isMountedRef.current) {
+        setFilteredStats(result.data);
+        console.log('✅ [useAdminFeedback] Filtered statistics updated:', result.data);
+        return { success: true, data: result.data };
+      } else if (isMountedRef.current) {
+        // Set empty stats on error
+        setFilteredStats({
+          total: 0,
+          open: 0,
+          inProgress: 0,
+          resolved: 0,
+          closed: 0,
+          byType: {}
+        });
+        console.error('❌ [useAdminFeedback] Failed to fetch filtered stats:', result.message);
+        return { success: false, message: result.message };
+      }
+    } catch (err) {
+      console.error('❌ [useAdminFeedback] Exception in fetchFilteredStats:', err);
+      if (isMountedRef.current) {
+        setFilteredStats({
+          total: 0,
+          open: 0,
+          inProgress: 0,
+          resolved: 0,
+          closed: 0,
+          byType: {}
+        });
+      }
+      return { success: false, message: 'Failed to fetch filtered stats' };
     }
-  } catch (err) {
-    console.error('❌ [useAdminFeedback] Exception in fetchFilteredStats:', err);
-    // Reset to zeros on error
-    if (isMountedRef.current) {
-      setFilteredStats({
-        total: 0,
-        open: 0,
-        inProgress: 0,
-        resolved: 0,
-        closed: 0,
-        byType: {}
-      });
-    }
-    return { success: false, message: 'Failed to fetch filtered stats' };
-  }
-}, []);
+    
+    return { success: false, message: 'Unknown error' };
+  }, []);
 
   // ===== GET FEEDBACK DETAILS =====
   const getFeedbackDetails = useCallback(async (feedbackId: string): Promise<FeedbackDetailsResponse> => {
@@ -209,7 +217,7 @@ const fetchFilteredStats = useCallback(async (filters?: { status?: string, type?
       
       if (result.success && isMountedRef.current) {
         console.log(`✅ [useAdminFeedback] Status updated successfully`);
-        globalStatsFetchedRef.current = false;
+        // Refresh global stats after status change
         await fetchGlobalStats(true);
       }
       return result;
@@ -238,7 +246,7 @@ const fetchFilteredStats = useCallback(async (filters?: { status?: string, type?
       
       if (result.success && isMountedRef.current) {
         console.log(`✅ [useAdminFeedback] Delete successful`);
-        globalStatsFetchedRef.current = false;
+        // Refresh global stats after deletion
         await fetchGlobalStats(true);
       }
       return result;
@@ -253,15 +261,20 @@ const fetchFilteredStats = useCallback(async (filters?: { status?: string, type?
     }
   }, [fetchGlobalStats]);
 
-  // ===== REFRESH =====
+  // ===== REFRESH EVERYTHING =====
   const refreshFeedback = useCallback(async (filters?: FeedbackFilters) => {
     console.log('🔄 [useAdminFeedback] Manual refresh triggered');
-    globalStatsFetchedRef.current = false;
-    await Promise.all([
-      fetchFeedback(filters),
-      fetchGlobalStats(true),
-      fetchFilteredStats(filters)
-    ]);
+    
+    try {
+      // Fetch everything fresh
+      await Promise.all([
+        fetchFeedback(filters),
+        fetchGlobalStats(true),
+        fetchFilteredStats(filters)
+      ]);
+    } catch (err) {
+      console.error('❌ [useAdminFeedback] Refresh failed:', err);
+    }
   }, [fetchFeedback, fetchGlobalStats, fetchFilteredStats]);
 
   console.log('📊 [useAdminFeedback] Current state:', {
@@ -277,7 +290,7 @@ const fetchFilteredStats = useCallback(async (filters?: { status?: string, type?
   return {
     feedback,
     loading,
-    error,
+    error, 
     globalStats,
     filteredStats,
     pagination,

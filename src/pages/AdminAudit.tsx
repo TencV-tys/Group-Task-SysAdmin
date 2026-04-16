@@ -467,11 +467,6 @@ const AdminAudit = () => {
               <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="audit-date-input" />
             </div>
           )}
-
-          <div className="audit-filter-inputs">
-            <input type="text" placeholder="Filter by Admin ID" value={adminFilter} onChange={(e) => setAdminFilter(e.target.value)} className="audit-filter-input" />
-            <input type="text" placeholder="Filter by Action" value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} className="audit-filter-input" />
-          </div>
         </div>
 
         {error && <ErrorDisplay message={error} />}

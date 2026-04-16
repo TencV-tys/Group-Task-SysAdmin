@@ -27,7 +27,7 @@ const Feedback: React.FC = () => {
     pagination,
     actionLoading,
     fetchFeedback,
-    fetchFilteredStats,
+    fetchFilteredStats, 
     getFeedbackDetails,
     updateStatus,
     refreshFeedback,
