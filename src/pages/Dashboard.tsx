@@ -10,7 +10,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faUsers, 
   faUserCog, 
-  faUsersCog,
+  faUsersCog, 
   faComment,
   faFlag,
   faHistory,
@@ -49,6 +49,7 @@ const Dashboard = () => {
     try {
       // Fetch dashboard stats
       const statsResult = await AdminDashboardService.getStats();
+      console.log('dahboard data',statsResult)
       if (statsResult.success && statsResult.data && isMountedRef.current) {
         setStats(statsResult.data);
         setError(null);
