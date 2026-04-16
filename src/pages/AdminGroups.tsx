@@ -339,54 +339,55 @@ const AdminGroups: React.FC = () => {
     }
   };
 
-  // ===== Delete confirm modal =====
-  // showDeleteModal format: "groupId:ACTION" or just "groupId" for legacy
-  const parseDeleteModal = () => {
-    if (!showDeleteModal) return { groupId: null, action: null };
-    const parts = showDeleteModal.split(':');
-    if (parts.length === 2) return { groupId: parts[0], action: parts[1] as ActionType };
-    return { groupId: showDeleteModal, action: null };
-  };
+ // ===== Delete confirm modal =====
+const parseDeleteModal = () => {
+  if (!showDeleteModal) return { groupId: null, action: null };
+  const parts = showDeleteModal.split(':');
+  if (parts.length === 2) return { groupId: parts[0], action: parts[1] as ActionType };
+  return { groupId: showDeleteModal, action: null };
+};
 
-  const handleDeleteConfirm = async (hardDelete?: boolean) => {
-    
-    const { groupId, action } = parseDeleteModal();
-    if (!groupId) return;
+const { groupId: deleteGroupId, action: deleteAction } = parseDeleteModal();
 
-    const isHard = action === 'HARD_DELETE' || hardDelete === true;
-    setDeleteLoading(true);
-    try {
-      const result = await deleteGroup(groupId, isHard);
-      if (result.success) {
-        setShowDeleteModal(null);
-        setShowModal(false);
-        alert('Group deleted successfully!');
-        await loadGroups(); await fetchStats();
-      } else {
-        alert(result.message || 'Failed to delete group');
-      }
-    } finally {
-      setDeleteLoading(false);
+const handleDeleteConfirm = async (hardDelete?: boolean) => {
+  if (!deleteGroupId) return;
+
+  const isHard = deleteAction === 'HARD_DELETE' || hardDelete === true;
+  setDeleteLoading(true);
+  try {
+    const result = await deleteGroup(deleteGroupId, isHard);
+    if (result.success) {
+      setShowDeleteModal(null);
+      setShowModal(false);
+      alert('Group deleted successfully!');
+      await loadGroups(); 
+      await fetchStats();
+    } else {
+      alert(result.message || 'Failed to delete group');
     }
-  };
+  } finally {
+    setDeleteLoading(false);
+  }
+};
 
-  const handleRestore = async (groupId: string) => {
-    setDeleteLoading(true);
-    try {
-      const result = await applyAction(groupId, 'RESTORE');
-      if (result.success) {
-        alert('Group restored successfully!');
-        setShowDeleteModal(null);
-        setShowReportModal(false);
-        setShowModal(false);
-        await loadGroups(); await fetchStats();
-      } else {
-        alert(result.message || 'Failed to restore group');
-      }
-    } finally {
-      setDeleteLoading(false);
+const handleRestore = async (groupIdParam: string) => {
+  setDeleteLoading(true);
+  try {
+    const result = await applyAction(groupIdParam, 'RESTORE');
+    if (result.success) {
+      alert('Group restored successfully!');
+      setShowDeleteModal(null);
+      setShowReportModal(false);
+      setShowModal(false);
+      await loadGroups(); 
+      await fetchStats();
+    } else {
+      alert(result.message || 'Failed to restore group');
     }
-  };
+  } finally {
+    setDeleteLoading(false);
+  }
+};
 
   const closeModal = () => { setShowModal(false); setTimeout(() => setSelectedGroup(null), 300); };
   const closeDeleteModal = () => setShowDeleteModal(null);
@@ -396,11 +397,9 @@ const AdminGroups: React.FC = () => {
     try {
       return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
     } catch { return 'Invalid date'; }
-  };
+  }; 
 
   const totalPages = Math.ceil(pagination.total / pagination.limit);
-  const { groupId, action: deleteAction } = parseDeleteModal();
-  console.log('initializing groupID:',groupId);
 
   if (loading && groups.length === 0) return <LoadingScreen message="Loading groups..." fullScreen />;
 

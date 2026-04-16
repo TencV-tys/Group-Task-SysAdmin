@@ -14,11 +14,11 @@ const SafeImage = ({ src, className, fallbackChar }: { src: string; className: s
   const [loading, setLoading] = useState(true);
   
   if (error || !src) {
-    return (
+    return ( 
       <div className={`${className}-placeholder`}>
         {fallbackChar}
       </div>
-    );
+    ); 
   }
   
   return (

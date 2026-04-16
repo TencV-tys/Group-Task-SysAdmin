@@ -1,4 +1,4 @@
-// pages/Feedback.tsx - FIXED: Use globalStats for stat cards
+// pages/Feedback.tsx - FIXED: Only use globalStats for stat cards, no filtered stats calls
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAdminFeedback } from '../hooks/useAdminFeedback';
@@ -23,11 +23,11 @@ const Feedback: React.FC = () => {
     feedback,
     loading,
     error,
-    globalStats,  // ← ADD THIS - for stat cards that don't change
+    globalStats,
     pagination,
     actionLoading,
     fetchFeedback,
-    fetchFilteredStats, 
+    fetchGlobalStats,
     getFeedbackDetails,
     updateStatus,
     refreshFeedback,
@@ -54,6 +54,7 @@ const Feedback: React.FC = () => {
   const toastTimeoutRef = useRef<number | undefined>(undefined);
   const lastShownFeedbackIdRef = useRef<string | null>(null);
   const pendingToastRef = useRef<{ id: string; title: string; message: string } | null>(null);
+  const isMountedRef = useRef(true);
 
   // ===== Helper to build API filters =====
   const buildApiFilters = useCallback((
@@ -77,19 +78,11 @@ const Feedback: React.FC = () => {
       apiFilters.search = activeSearch;
     }
     
-    console.log('🔧 [Feedback] Building API filters:', { 
-      originalFilters: currentFilters,
-      statusOverride,
-      statusFilter, 
-      searchInput,
-      result: apiFilters 
-    });
-    
     return apiFilters;
   }, [filters, statusFilter, searchInput]);
 
-  // ===== Load feedback =====
-  const loadFeedback = useCallback(async (
+  // ===== Load feedback ONLY (no stats here) =====
+  const loadFeedbackOnly = useCallback(async (
     filterParams?: Partial<LocalFeedbackFilters>,
     statusOverride?: string,
     searchOverride?: string
@@ -105,33 +98,47 @@ const Feedback: React.FC = () => {
       const apiFilters = buildApiFilters(filterParams, statusOverride, searchOverride);
       console.log('🚀 [Feedback] Loading feedback with filters:', apiFilters);
       
-      const result = await fetchFeedback(apiFilters);
-      
-      await fetchFilteredStats({
-        status: apiFilters.status,
-        search: apiFilters.search
-      });
-      
+      await fetchFeedback(apiFilters);
       setHasNewFeedback(false);
-      
-      if (!result?.success) {
-        console.error('❌ [Feedback] Failed to load:', result?.message);
-      }
     } catch (err) {
       console.error('❌ [Feedback] Error loading feedback:', err);
     } finally {
       fetchInProgressRef.current = false;
     }
-  }, [fetchFeedback, fetchFilteredStats, buildApiFilters]);
+  }, [fetchFeedback, buildApiFilters]);
 
-  // ===== Initial load =====
-  useEffect(() => {
-    if (!initialLoadDoneRef.current) {
-      initialLoadDoneRef.current = true;
-      console.log('📥 [Feedback] Initial feedback load');
-      loadFeedback();
+  // ===== Load global stats =====
+  const loadGlobalStats = useCallback(async () => {
+    try {
+      await fetchGlobalStats(true);
+    } catch (err) {
+      console.error('❌ [Feedback] Error loading global stats:', err);
     }
-  }, [loadFeedback]);
+  }, [fetchGlobalStats]);
+
+  // ===== INITIAL LOAD =====
+  useEffect(() => {
+    if (!initialLoadDoneRef.current && isMountedRef.current) {
+      initialLoadDoneRef.current = true;
+      console.log('📥 [Feedback] Initial load - fetching global stats and feedback');
+      
+      // Load global stats AND feedback
+      Promise.all([
+        loadGlobalStats(),
+        loadFeedbackOnly()
+      ]).catch(err => {
+        console.error('❌ [Feedback] Initial load failed:', err);
+      });
+    }
+  }, [loadGlobalStats, loadFeedbackOnly]);
+
+  // ===== Cleanup =====
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // ===== REAL-TIME SOCKET LISTENERS =====
   useEffect(() => {
@@ -150,7 +157,8 @@ const Feedback: React.FC = () => {
         }
       }
       
-      loadFeedback(undefined, statusFilter, searchInput);
+      loadFeedbackOnly(undefined, statusFilter, searchInput);
+      loadGlobalStats(); // Update stats on new feedback
       setHasNewFeedback(true);
     };
     
@@ -158,11 +166,12 @@ const Feedback: React.FC = () => {
       const data = args[0] as { feedbackId: string; oldStatus: string; newStatus: string };
       console.log('📢 Real-time: Feedback status changed', data);
       
-      loadFeedback(undefined, statusFilter, searchInput);
+      loadFeedbackOnly(undefined, statusFilter, searchInput);
+      loadGlobalStats(); // Update stats on status change
       
-      if (selectedFeedback?.id === data.feedbackId) {
+      if (selectedFeedback?.id === data.feedbackId && isMountedRef.current) {
         getFeedbackDetails(data.feedbackId).then(result => {
-          if (result.success && result.data) {
+          if (result.success && result.data && isMountedRef.current) {
             setSelectedFeedback(result.data);
           }
         });
@@ -171,11 +180,12 @@ const Feedback: React.FC = () => {
     
     const handleFeedbackUpdated = (...args: unknown[]) => {
       console.log('📢 Real-time: Feedback updated', args[0]);
-      loadFeedback(undefined, statusFilter, searchInput);
+      loadFeedbackOnly(undefined, statusFilter, searchInput);
+      loadGlobalStats();
       
-      if (selectedFeedback) {
+      if (selectedFeedback && isMountedRef.current) {
         getFeedbackDetails(selectedFeedback.id).then(result => {
-          if (result.success && result.data) {
+          if (result.success && result.data && isMountedRef.current) {
             setSelectedFeedback(result.data);
           }
         });
@@ -185,9 +195,10 @@ const Feedback: React.FC = () => {
     const handleFeedbackDeleted = (...args: unknown[]) => {
       const data = args[0] as { feedbackId: string };
       console.log('📢 Real-time: Feedback deleted', data);
-      loadFeedback(undefined, statusFilter, searchInput);
+      loadFeedbackOnly(undefined, statusFilter, searchInput);
+      loadGlobalStats();
       
-      if (selectedFeedback?.id === data.feedbackId) {
+      if (selectedFeedback?.id === data.feedbackId && isMountedRef.current) {
         setShowModal(false);
         setSelectedFeedback(null);
       }
@@ -204,7 +215,7 @@ const Feedback: React.FC = () => {
       adminSocket.off('feedback:updated', handleFeedbackUpdated);
       adminSocket.off('feedback:deleted', handleFeedbackDeleted);
     };
-  }, [statusFilter, searchInput, loadFeedback, selectedFeedback, getFeedbackDetails]);
+  }, [statusFilter, searchInput, loadFeedbackOnly, loadGlobalStats, selectedFeedback, getFeedbackDetails]);
 
   // ===== Show toast for new feedback =====
   useEffect(() => {
@@ -229,7 +240,7 @@ const Feedback: React.FC = () => {
     console.log('🔍 [Feedback] Search triggered:', searchInput);
     const newFilters = { ...filters, page: 1 };
     setFilters(newFilters);
-    loadFeedback(newFilters, statusFilter, searchInput);
+    loadFeedbackOnly(newFilters, statusFilter, searchInput);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -242,21 +253,28 @@ const Feedback: React.FC = () => {
     console.log('📄 [Feedback] Page changed:', newPage);
     const newFilters = { ...filters, page: newPage };
     setFilters(newFilters);
-    loadFeedback(newFilters, statusFilter, searchInput);
+    loadFeedbackOnly(newFilters, statusFilter, searchInput);
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     console.log('🔄 [Feedback] Manual refresh');
     setRefreshing(true);
-    refreshFeedback({
-      page: filters.page,
-      limit: filters.limit,
-      status: statusFilter || undefined,
-      search: searchInput || undefined
-    }).finally(() => {
-      setRefreshing(false);
+    
+    try {
+      await refreshFeedback({
+        page: filters.page,
+        limit: filters.limit,
+        status: statusFilter || undefined,
+        search: searchInput || undefined
+      });
       setHasNewFeedback(false);
-    });
+    } catch (err) {
+      console.error('❌ [Feedback] Refresh failed:', err);
+    } finally {
+      if (isMountedRef.current) {
+        setRefreshing(false);
+      }
+    }
   };
 
   const handleStatClick = (status: string) => {
@@ -264,7 +282,7 @@ const Feedback: React.FC = () => {
     setStatusFilter(status);
     const newFilters = { ...filters, page: 1 };
     setFilters(newFilters);
-    loadFeedback(newFilters, status, searchInput);
+    loadFeedbackOnly(newFilters, status, searchInput);
     setHasNewFeedback(false);
   };
 
@@ -274,7 +292,7 @@ const Feedback: React.FC = () => {
     setStatusFilter('');
     const newFilters = { page: 1, limit: 10 };
     setFilters(newFilters);
-    loadFeedback(newFilters, '', '');
+    loadFeedbackOnly(newFilters, '', '');
     setHasNewFeedback(false);
   };
 
@@ -288,7 +306,7 @@ const Feedback: React.FC = () => {
     try {
       const result = await getFeedbackDetails(feedbackId);
       
-      if (result.success && result.data) {
+      if (result.success && result.data && isMountedRef.current) {
         setSelectedFeedback(result.data);
         setShowModal(true);
       } else {
@@ -297,8 +315,10 @@ const Feedback: React.FC = () => {
     } catch (err) {
       console.error('❌ [Feedback] Error:', err);
     } finally {
-      setModalLoading(false);
-      setSelectedRowId(null);
+      if (isMountedRef.current) {
+        setModalLoading(false);
+        setSelectedRowId(null);
+      }
     }
   };
 
@@ -306,17 +326,20 @@ const Feedback: React.FC = () => {
     if (!selectedFeedback) return;
     
     const result = await updateStatus(selectedFeedback.id, status);
-    if (result.success) {
-      await loadFeedback(undefined, statusFilter, searchInput);
+    if (result.success && isMountedRef.current) {
+      await loadFeedbackOnly(undefined, statusFilter, searchInput);
+      await loadGlobalStats();
       
       const updatedDetails = await getFeedbackDetails(selectedFeedback.id);
-      if (updatedDetails.success && updatedDetails.data) {
+      if (updatedDetails.success && updatedDetails.data && isMountedRef.current) {
         setSelectedFeedback(updatedDetails.data);
         setTimeout(() => {
-          setShowModal(false);
-          setSelectedFeedback(null);
+          if (isMountedRef.current) {
+            setShowModal(false);
+            setSelectedFeedback(null);
+          }
         }, 500);
-      } else {
+      } else if (isMountedRef.current) {
         setShowModal(false);
         setSelectedFeedback(null);
       }
@@ -325,7 +348,11 @@ const Feedback: React.FC = () => {
 
   const closeModal = () => {
     setShowModal(false);
-    setTimeout(() => setSelectedFeedback(null), 300);
+    setTimeout(() => {
+      if (isMountedRef.current) {
+        setSelectedFeedback(null);
+      }
+    }, 300);
   };
 
   const formatDate = (dateString: string) => {
@@ -380,17 +407,17 @@ const Feedback: React.FC = () => {
             </h1>
             <p>View and manage user feedback</p>
           </div>
-          <button className="refresh-btn" onClick={handleRefresh} disabled={refreshing}>
+          <button className="refresh-btn" onClick={handleRefresh} disabled={refreshing || loading}>
             <svg className={refreshing ? 'fa-spin' : ''} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M23 4v6h-6M1 20v-6h6" />
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
             </svg>
-            Refresh
+            {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
 
-        {/* ✅ FIXED: Stats Cards - Use globalStats (unchanging totals), not filteredStats */}
-        {globalStats && (
+        {/* Stats Cards - ONLY use globalStats, never filteredStats */}
+        {globalStats ? (
           <div className="feedback-stats">
             <div 
               className={`feedback-stat-card total ${statusFilter === '' ? 'active' : ''}`}
@@ -442,6 +469,14 @@ const Feedback: React.FC = () => {
               {statusFilter === 'CLOSED' && <div className="stat-active-indicator" />}
             </div>
           </div>
+        ) : (
+          <div className="feedback-stats-loading">
+            <div className="stat-skeleton"></div>
+            <div className="stat-skeleton"></div>
+            <div className="stat-skeleton"></div>
+            <div className="stat-skeleton"></div>
+            <div className="stat-skeleton"></div>
+          </div>
         )}
 
         {/* Filters */}
@@ -473,7 +508,7 @@ const Feedback: React.FC = () => {
 
         {error && <ErrorDisplay message={error} onRetry={handleRefresh} />}
 
-        {feedback.length === 0 ? (
+        {feedback.length === 0 && !loading ? (
           <div className="feedback-empty">
             <div className="feedback-empty-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -492,7 +527,7 @@ const Feedback: React.FC = () => {
               </button>
             )}
           </div>
-        ) : (
+        ) : feedback.length > 0 ? (
           <>
             <div className="feedback-results-summary">
               <span>Showing {feedback.length} of {pagination.total} results</span>
@@ -608,7 +643,7 @@ const Feedback: React.FC = () => {
               </div>
             )}
           </>
-        )}
+        ) : null}
       </div>
 
       {showModal && selectedFeedback && (

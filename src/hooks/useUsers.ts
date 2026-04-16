@@ -1,4 +1,5 @@
-// hooks/useUsers.ts - UPDATED WITH STATS (FIXED)
+// hooks/useUsers.ts - UPDATED
+
 import { useState, useCallback, useEffect } from 'react';
 import { AdminUsersService } from '../services/admin.users.service';
 import type { User, UserFilters, UserDetails, UserStats } from '../services/admin.users.service';
@@ -10,7 +11,7 @@ interface FetchUsersResult {
     pagination: { 
       page: number; 
       limit: number;
-      total: number;
+      total: number; 
       pages: number;
     };
   };
@@ -66,9 +67,12 @@ export function useUsers(initialLimit: number = 10): UseUsersReturn {
   });
 
   const fetchStats = useCallback(async (): Promise<FetchStatsResult> => {
+    console.log('📊 [useUsers] fetchStats called');
     setStatsLoading(true);
     try {
       const result = await AdminUsersService.getUserStats();
+      console.log('📊 [useUsers] Stats result:', result);
+      
       if (result.success && result.data) {
         setStats(result.data);
         return { success: true, data: result.data };
@@ -76,19 +80,20 @@ export function useUsers(initialLimit: number = 10): UseUsersReturn {
       return { success: false, message: result.message };
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch stats';
+      console.error('❌ [useUsers] Stats error:', errorMessage);
       return { success: false, message: errorMessage };
     } finally {
       setStatsLoading(false);
     }
-  }, []); // Empty deps - fetchStats doesn't depend on anything
+  }, []);
 
-  // Fetch stats on mount - NOW WITH fetchStats in dependency array
+  // Fetch stats on mount
   useEffect(() => {
     fetchStats();
-  }, [fetchStats]); // 👈 Added fetchStats to deps
+  }, [fetchStats]);
 
   const fetchUsers = useCallback(async (filters?: UserFilters): Promise<FetchUsersResult> => {
-       console.log('🔍 fetchUsers called with filters:', filters); 
+    console.log('🔍 fetchUsers called with filters:', filters); 
     setLoading(true);
     setError(null);
     try {
@@ -118,7 +123,7 @@ export function useUsers(initialLimit: number = 10): UseUsersReturn {
     } finally {
       setLoading(false);
     }
-  }, []); // Empty deps - fetchUsers doesn't depend on anything
+  }, []);
 
   const getUserDetails = useCallback(async (userId: string): Promise<FetchUserDetailsResult> => {
     try {
@@ -131,11 +136,14 @@ export function useUsers(initialLimit: number = 10): UseUsersReturn {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch user';
       return { success: false, message: errorMessage };
     }
-  }, []); // Empty deps - getUserDetails doesn't depend on anything
+  }, []);
 
   const refresh = useCallback(async (): Promise<void> => {
-    await fetchUsers({ page: pagination.page, limit: pagination.limit });
-    await fetchStats();
+    console.log('🔄 [useUsers] Manual refresh');
+    await Promise.all([
+      fetchUsers({ page: pagination.page, limit: pagination.limit }),
+      fetchStats()
+    ]);
   }, [fetchUsers, fetchStats, pagination.page, pagination.limit]);
 
   return {

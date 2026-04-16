@@ -1,4 +1,4 @@
-// pages/Reports.tsx - FULLY CORRECTED with sequential status workflow
+// pages/Reports.tsx - FULLY UPDATED AND WORKING
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Report, ReportFilters } from '../services/admin.report.services';
@@ -106,7 +106,6 @@ const SafeImage = ({ src, className, fallbackChar }: { src: string; className: s
   );
 };
 
-// ✅ Get allowed next statuses (sequential workflow - cannot go backwards)
 const getAllowedNextStatuses = (currentStatus: string): string[] => {
   switch (currentStatus) {
     case 'PENDING':
@@ -145,49 +144,49 @@ const Reports: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<{ id: string; title: string; message: string } | null>(null);
   const [hasNewReport, setHasNewReport] = useState(false);
   
-  const isFetchingRef = useRef(false);
+  const isMountedRef = useRef(true);
   const toastTimeoutRef = useRef<number | undefined>(undefined);
   const lastShownReportIdRef = useRef<string | null>(null);
   const pendingToastRef = useRef<{ id: string; title: string; message: string } | null>(null);
 
   // ===== FETCH REPORTS =====
-  const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
-    if (isFetchingRef.current) return;
+const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
+  try {
+    const apiFilters = filterParams || filters;
+    const queryFilters = { ...apiFilters };
+    if (queryFilters.status === 'ALL') delete queryFilters.status;
     
-    isFetchingRef.current = true;
-    setLoading(true);
-    setError(null);
+    console.log('📥 Fetching reports with filters:', queryFilters);
     
-    try {
-      const apiFilters = filterParams || filters;
-      const queryFilters = { ...apiFilters };
-      if (queryFilters.status === 'ALL') delete queryFilters.status;
-      
-      console.log('📥 Fetching reports with filters:', queryFilters);
-      
-      const result = await AdminReportsService.getReports(queryFilters);
-      
-      if (result.success) {
-        setReports(result.reports || []);
-        setTotalReports(result.pagination?.total || 0);
-        setHasNewReport(false);
-      } else {
-        setError(result.message || 'Failed to load reports');
-      }
-    } catch (err) {
-      console.error('Fetch reports error:', err);
+    const result = await AdminReportsService.getReports(queryFilters);
+    
+    if (result.success && isMountedRef.current) {
+      setReports(result.reports || []);
+      setTotalReports(result.pagination?.total || 0);
+      setHasNewReport(false);
+      setError(null);
+    } else if (isMountedRef.current) {
+      setError(result.message || 'Failed to load reports');
+    }
+  } catch (err) {
+    console.error('Fetch reports error:', err);
+    if (isMountedRef.current) {
       setError('Network error. Please try again.');
-    } finally {
+    }
+  } finally {
+    if (isMountedRef.current) {
       setLoading(false);
       setRefreshing(false);
-      isFetchingRef.current = false;
     }
-  }, [filters]);
+  }
+}, [filters]);
+
+
 
   const fetchStats = useCallback(async () => {
     try {
       const result = await AdminReportsService.getReportStatistics();
-      if (result.success && result.statistics) {
+      if (result.success && result.statistics && isMountedRef.current) {
         setStats(result.statistics);
       }
     } catch (err) {
@@ -223,9 +222,19 @@ const Reports: React.FC = () => {
       fetchReports(filters);
       fetchStats();
       
-      if (selectedReport?.id === data.reportId) {
+      setToastMessage({
+        id: data.reportId,
+        title: '✅ Status Updated',
+        message: `Report #${data.reportId.slice(0, 8)} changed from ${data.oldStatus} to ${data.newStatus}`
+      });
+      
+      setTimeout(() => {
+        setToastMessage(null);
+      }, 3000);
+      
+      if (selectedReport?.id === data.reportId && isMountedRef.current) {
         AdminReportsService.getReportById(data.reportId).then(result => {
-          if (result.success && result.report) {
+          if (result.success && result.report && isMountedRef.current) {
             setSelectedReport(result.report);
           }
         });
@@ -256,49 +265,65 @@ const Reports: React.FC = () => {
           lastShownReportIdRef.current = null;
         }, 1000);
       }, 5000);
-    }
+    } 
   }, [reports]);
+
+  useEffect(() => {
+  if (isMountedRef.current) {
+    fetchStats();
+  }
+}, [filters.status, fetchStats]);
 
   // ===== Initial data load =====
   useEffect(() => {
-    fetchReports(filters);
-  }, [filters, fetchReports]);
+    isMountedRef.current = true;
+    
+    const loadInitialData = async () => {
+      await Promise.all([fetchReports(filters), fetchStats()]);
+    };
+    
+    loadInitialData();
+    
+    return () => {
+      isMountedRef.current = false;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  // Refetch when filters change
   useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
+    if (isMountedRef.current && !loading) {
+      fetchReports(filters);
+    }
+  }, [filters.page, filters.status, filters.search, fetchReports, filters, loading]);
 
   const handleRefresh = () => {
     setRefreshing(true);
-    fetchReports(filters);
-    fetchStats();
-    setHasNewReport(false);
+    Promise.all([fetchReports(filters), fetchStats()]).finally(() => {
+      setHasNewReport(false);
+    });
   };
 
   const handleSearch = () => {
     const newFilters = { ...filters, search: searchInput, page: 1 };
     setFilters(newFilters);
-    fetchReports(newFilters);
   };
 
   const handleStatusChange = (status: string) => {
     const newFilters = { ...filters, status, page: 1 };
     setFilters(newFilters);
-    fetchReports(newFilters);
     setHasNewReport(false);
   };
 
   const handleStatClick = (status: string) => {
     const newFilters = { ...filters, status, page: 1 };
     setFilters(newFilters);
-    fetchReports(newFilters);
     setHasNewReport(false);
   };
 
   const handlePageChange = (newPage: number) => {
     const newFilters = { ...filters, page: newPage };
     setFilters(newFilters);
-    fetchReports(newFilters);
   };
 
   const handleRowClick = (report: Report) => {
@@ -314,54 +339,75 @@ const Reports: React.FC = () => {
   const handleUpdateClick = (e: React.MouseEvent, report: Report) => {
     e.stopPropagation();
     setSelectedReport(report);
-    setUpdateStatus(report.status);
+    setUpdateStatus('');
     setUpdateNotes(report.resolutionNotes || '');
     setShowUpdateModal(true);
   };
 
-  // ✅ Update status with sequential workflow
-  const handleUpdateStatus = async () => {
-    if (!selectedReport) return;
+  // Replace your handleUpdateStatus function with this:
+
+const handleUpdateStatus = async () => {
+  if (!selectedReport) return;
+  
+  setSubmitting(true);
+  try {
+    const result = await AdminReportsService.updateReportStatus(
+      selectedReport.id,
+      updateStatus,
+      updateNotes
+    );
     
-    setSubmitting(true);
-    try {
-      const result = await AdminReportsService.updateReportStatus(
-        selectedReport.id,
-        updateStatus,
-        updateNotes
-      );
+    if (result.success) {
+      setShowUpdateModal(false);
       
-      if (result.success) {
-        setShowUpdateModal(false);
-        
-        await fetchReports(filters);
-        await fetchStats();
-        
-        setToastMessage({
-          id: Date.now().toString(),
-          title: '✅ Status Updated',
-          message: `Report status changed to ${updateStatus}`
-        });
-        
-        setTimeout(() => {
-          setToastMessage(null);
-        }, 3000);
-        
-        setSelectedReport(null);
-        setSelectedRowId(null);
-        setUpdateStatus('');
-        setUpdateNotes('');
-        
-      } else {
-        alert(result.message || 'Failed to update report');
+      // ✅ Force a complete refresh with current filters
+      // Reset loading state to trigger a fresh fetch
+      setLoading(true);
+      
+      // Fetch fresh data with current filters
+      const queryFilters = { ...filters };
+      if (queryFilters.status === 'ALL') delete queryFilters.status;
+      
+      const freshReports = await AdminReportsService.getReports(queryFilters);
+      const freshStats = await AdminReportsService.getReportStatistics();
+      
+      if (freshReports.success && isMountedRef.current) {
+        setReports(freshReports.reports || []);
+        setTotalReports(freshReports.pagination?.total || 0);
       }
-    } catch (err) {
-      console.error('Update error:', err);
-      alert('Network error. Please try again.');
-    } finally {
-      setSubmitting(false);
+      
+      if (freshStats.success && freshStats.statistics && isMountedRef.current) {
+        setStats(freshStats.statistics);
+      }
+      
+      setLoading(false);
+      
+      setToastMessage({
+        id: Date.now().toString(),
+        title: '✅ Status Updated',
+        message: `Report status changed to ${updateStatus}`
+      });
+      
+      setTimeout(() => {
+        setToastMessage(null);
+      }, 3000);
+      
+      setSelectedReport(null);
+      setSelectedRowId(null);
+      setUpdateStatus('');
+      setUpdateNotes('');
+      
+    } else {
+      alert(result.message || 'Failed to update report');
     }
-  };
+  } catch (err) {
+    console.error('Update error:', err);
+    alert('Network error. Please try again.');
+    setLoading(false);
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   const handleViewFullDetails = async (report: Report) => {
     setSelectedRowId(report.id);
@@ -480,11 +526,10 @@ const Reports: React.FC = () => {
       limit: 20
     };
     setFilters(newFilters);
-    fetchReports(newFilters);
     setHasNewReport(false);
   };
 
-  if (loading && !refreshing) {
+  if (loading && !refreshing && reports.length === 0) {
     return <LoadingScreen message="Loading reports..." />;
   }
 
@@ -513,95 +558,94 @@ const Reports: React.FC = () => {
         </button>
       </div>
 
-      {/* Stats Cards - Clickable */}
-      {stats && (
-        <div className="stats-grid">
-          <div 
-            className={`stat-card total ${filters.status === 'ALL' ? 'active' : ''}`}
-            onClick={() => handleStatClick('ALL')}
-            style={{ cursor: 'pointer' }}
-          >
-            <div className="stat-icon">
-              <FontAwesomeIcon icon={faFlag} />
-            </div>
-            <div className="stat-content">
-              <span className="stat-value">{stats.overview.total}</span>
-              <span className="stat-label">Total Reports</span>
-            </div>
-            {filters.status === 'ALL' && <div className="stat-active-indicator" />}
-          </div>
-          
-          <div 
-            className={`stat-card pending ${filters.status === 'PENDING' ? 'active' : ''}`}
-            onClick={() => handleStatClick('PENDING')}
-            style={{ cursor: 'pointer' }}
-          >
-            <div className="stat-icon">
-              <FontAwesomeIcon icon={faClock} />
-            </div>
-            <div className="stat-content">
-              <span className="stat-value">{stats.overview.pending}</span>
-              <span className="stat-label">Pending</span>
-            </div>
-            {filters.status === 'PENDING' && <div className="stat-active-indicator" />}
-          </div>
-          
-          <div 
-            className={`stat-card reviewing ${filters.status === 'REVIEWING' ? 'active' : ''}`}
-            onClick={() => handleStatClick('REVIEWING')}
-            style={{ cursor: 'pointer' }}
-          >
-            <div className="stat-icon">
-              <FontAwesomeIcon icon={faSpinner} />
-            </div>
-            <div className="stat-content">
-              <span className="stat-value">{stats.overview.reviewing}</span>
-              <span className="stat-label">Reviewing</span>
-            </div>
-            {filters.status === 'REVIEWING' && <div className="stat-active-indicator" />}
-          </div>
-          
-          <div 
-            className={`stat-card resolved ${filters.status === 'RESOLVED' ? 'active' : ''}`}
-            onClick={() => handleStatClick('RESOLVED')}
-            style={{ cursor: 'pointer' }}
-          >
-            <div className="stat-icon">
-              <FontAwesomeIcon icon={faCheckCircle} />
-            </div>
-            <div className="stat-content">
-              <span className="stat-value">{stats.overview.resolved}</span>
-              <span className="stat-label">Resolved</span>
-            </div>
-            {filters.status === 'RESOLVED' && <div className="stat-active-indicator" />}
-          </div>
-          
-          <div 
-            className={`stat-card dismissed ${filters.status === 'DISMISSED' ? 'active' : ''}`}
-            onClick={() => handleStatClick('DISMISSED')}
-            style={{ cursor: 'pointer' }}
-          >
-            <div className="stat-icon">
-              <FontAwesomeIcon icon={faTimes} />
-            </div>
-            <div className="stat-content">
-              <span className="stat-value">{stats.overview.dismissed}</span>
-              <span className="stat-label">Dismissed</span>
-            </div>
-            {filters.status === 'DISMISSED' && <div className="stat-active-indicator" />}
-          </div>
-          
-          <div className="stat-card rate">
-            <div className="stat-icon">
-              <FontAwesomeIcon icon={faCheckCircle} />
-            </div>
-            <div className="stat-content">
-              <span className="stat-value">{stats.overview.resolutionRate}%</span>
-              <span className="stat-label">Resolution Rate</span>
-            </div>
-          </div>
-        </div>
-      )}
+    {stats && (
+  <div className="stats-grid">
+    <div 
+      className={`stat-card total ${filters.status === 'ALL' ? 'active' : ''}`}
+      onClick={() => handleStatClick('ALL')}
+      style={{ cursor: 'pointer' }}
+    >
+      <div className="stat-icon">
+        <FontAwesomeIcon icon={faFlag} />
+      </div>
+      <div className="stat-content">
+        <span className="stat-value">{stats.overview.total}</span>
+        <span className="stat-label">Total Reports</span>
+      </div>
+      {filters.status === 'ALL' && <div className="stat-active-indicator" />}
+    </div>
+    
+    <div 
+      className={`stat-card pending ${filters.status === 'PENDING' ? 'active' : ''}`}
+      onClick={() => handleStatClick('PENDING')}
+      style={{ cursor: 'pointer' }}
+    >
+      <div className="stat-icon">
+        <FontAwesomeIcon icon={faClock} />
+      </div>
+      <div className="stat-content">
+        <span className="stat-value">{stats.overview.pending}</span>
+        <span className="stat-label">Pending</span>
+      </div>
+      {filters.status === 'PENDING' && <div className="stat-active-indicator" />}
+    </div>
+    
+    <div 
+      className={`stat-card reviewing ${filters.status === 'REVIEWING' ? 'active' : ''}`}
+      onClick={() => handleStatClick('REVIEWING')}
+      style={{ cursor: 'pointer' }}
+    >
+      <div className="stat-icon">
+        <FontAwesomeIcon icon={faSpinner} />
+      </div>
+      <div className="stat-content">
+        <span className="stat-value">{stats.overview.reviewing}</span>
+        <span className="stat-label">Reviewing</span>
+      </div>
+      {filters.status === 'REVIEWING' && <div className="stat-active-indicator" />}
+    </div>
+    
+    <div 
+      className={`stat-card resolved ${filters.status === 'RESOLVED' ? 'active' : ''}`}
+      onClick={() => handleStatClick('RESOLVED')}
+      style={{ cursor: 'pointer' }}
+    >
+      <div className="stat-icon">
+        <FontAwesomeIcon icon={faCheckCircle} />
+      </div>
+      <div className="stat-content">
+        <span className="stat-value">{stats.overview.resolved}</span>
+        <span className="stat-label">Resolved</span>
+      </div>
+      {filters.status === 'RESOLVED' && <div className="stat-active-indicator" />}
+    </div>
+    
+    <div 
+      className={`stat-card dismissed ${filters.status === 'DISMISSED' ? 'active' : ''}`}
+      onClick={() => handleStatClick('DISMISSED')}
+      style={{ cursor: 'pointer' }}
+    >
+      <div className="stat-icon">
+        <FontAwesomeIcon icon={faTimes} />
+      </div>
+      <div className="stat-content">
+        <span className="stat-value">{stats.overview.dismissed}</span>
+        <span className="stat-label">Dismissed</span>
+      </div>
+      {filters.status === 'DISMISSED' && <div className="stat-active-indicator" />}
+    </div>
+    
+    <div className="stat-card rate">
+      <div className="stat-icon">
+        <FontAwesomeIcon icon={faCheckCircle} />
+      </div>
+      <div className="stat-content">
+        <span className="stat-value">{stats.overview.resolutionRate}%</span>
+        <span className="stat-label">Resolution Rate</span>
+      </div>
+    </div>
+  </div>
+)}
 
       {/* Filters */}
       <div className="filters-bar">
@@ -642,154 +686,146 @@ const Reports: React.FC = () => {
           <p>{error}</p>
           <button onClick={handleRefresh} className="retry-btn">Retry</button>
         </div>
+      ) : reports.length === 0 && !loading ? (
+        <div className="empty-state">
+          <div className="empty-icon">
+            <FontAwesomeIcon icon={faFlag} />
+          </div>
+          <h3>No reports found</h3>
+          <p>
+            {searchInput || filters.status !== 'ALL'
+              ? "No reports match your current filters. Try adjusting your search."
+              : "There are no reports in the system yet."}
+          </p>
+          {(searchInput || filters.status !== 'ALL') && (
+            <button className="empty-btn" onClick={clearFilters}>
+              Clear Filters
+            </button>
+          )}
+        </div>
       ) : (
         <>
-          {reports.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-icon">
-                <FontAwesomeIcon icon={faFlag} />
-              </div>
-              <h3>No reports found</h3>
-              <p>
-                {searchInput || filters.status !== 'ALL'
-                  ? "No reports match your current filters. Try adjusting your search."
-                  : "There are no reports in the system yet."}
-              </p>
-              {(searchInput || filters.status !== 'ALL') && (
-                <button className="empty-btn" onClick={clearFilters}>
-                  Clear Filters
-                </button>
-              )}
-            </div>
-          ) : (
-            <>
-              <div className="table-container">
-                <table className="reports-table">
-                  <thead>
-                    <tr>
-                      <th>Status</th>
-                      <th>Type</th>
-                      <th>Group</th>
-                      <th>Reported By</th>
-                      <th>Description</th>
-                      <th>Reported</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reports.map((report, index) => (
-                      <tr 
-                        key={`${report.id}-${report.status}-${report.resolvedAt || index}`} 
-                        onClick={() => handleRowClick(report)}
-                        className={`report-row ${selectedRowId === report.id ? 'selected' : ''}`}
-                      >
-                        <td>
-                          <span className={`status-badge ${getStatusBadgeClass(report.status)}`}>
-                            <FontAwesomeIcon icon={getStatusIcon(report.status)} />
-                            {report.status}
-                          </span>
-                        </td>
-                        <td>
-                          <span className={`type-badge ${getTypeClass(report.type)}`}>
-                            <span>{getTypeIcon(report.type)}</span>
-                            {report.type?.replace(/_/g, ' ') || 'Unknown'}
-                          </span>
-                        </td>
-                        <td>
-                          <div className="group-cell">
-                            {report.group?.avatarUrl ? (
-                              <SafeImage 
-                                src={report.group.avatarUrl} 
-                                className="group-avatar"
-                                fallbackChar={report.group?.name?.charAt(0) || 'G'}
-                              />
-                            ) : (
-                              <div className="group-avatar-placeholder">
-                                {report.group?.name?.charAt(0) || 'G'}
-                              </div>
-                            )}
-                            <span>{report.group?.name || 'Unknown Group'}</span>
+          <div className="table-container">
+            <table className="reports-table">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Type</th>
+                  <th>Group</th>
+                  <th>Reported By</th>
+                  <th>Description</th>
+                  <th>Reported</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reports.map((report, index) => (
+                  <tr 
+                    key={`${report.id}-${report.status}-${index}`} 
+                    onClick={() => handleRowClick(report)}
+                    className={`report-row ${selectedRowId === report.id ? 'selected' : ''}`}
+                  >
+                    <td>
+                      <span className={`status-badge ${getStatusBadgeClass(report.status)}`}>
+                        <FontAwesomeIcon icon={getStatusIcon(report.status)} />
+                        {report.status}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`type-badge ${getTypeClass(report.type)}`}>
+                        <span>{getTypeIcon(report.type)}</span>
+                        {report.type?.replace(/_/g, ' ') || 'Unknown'}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="group-cell">
+                        {report.group?.avatarUrl ? (
+                          <SafeImage 
+                            src={report.group.avatarUrl} 
+                            className="group-avatar"
+                            fallbackChar={report.group?.name?.charAt(0) || 'G'}
+                          />
+                        ) : (
+                          <div className="group-avatar-placeholder">
+                            {report.group?.name?.charAt(0) || 'G'}
                           </div>
-                        </td>
-                        <td>
-                          <div className="user-cell">
-                            {report.reporter?.avatarUrl ? (
-                              <SafeImage 
-                                src={report.reporter.avatarUrl} 
-                                className="user-avatar"
-                                fallbackChar={report.reporter?.fullName?.charAt(0) || 'U'}
-                              />
-                            ) : (
-                              <div className="user-avatar-placeholder">
-                                {report.reporter?.fullName?.charAt(0) || 'U'}
-                              </div>
-                            )}
-                            <span>{report.reporter?.fullName || 'Unknown User'}</span>
+                        )}
+                        <span>{report.group?.name || 'Unknown Group'}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="user-cell">
+                        {report.reporter?.avatarUrl ? (
+                          <SafeImage 
+                            src={report.reporter.avatarUrl} 
+                            className="user-avatar"
+                            fallbackChar={report.reporter?.fullName?.charAt(0) || 'U'}
+                          />
+                        ) : (
+                          <div className="user-avatar-placeholder">
+                            {report.reporter?.fullName?.charAt(0) || 'U'}
                           </div>
-                        </td>
-                        <td>
-                          <div className="description-cell" title={report.description}>
-                            {report.description?.length > 50 
-                              ? `${report.description.substring(0, 50)}...` 
-                              : report.description || 'No description'}
-                          </div>
-                        </td>
-                        <td>
-                          <div className="date-cell">
-                            <FontAwesomeIcon icon={faCalendarAlt} />
-                            {getTimeAgo(report.createdAt)}
-                          </div>
-                        </td>
-                        <td onClick={(e) => e.stopPropagation()}>
-                          <div className="action-buttons">
-                            <button 
-                              className="action-btn view"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleViewFullDetails(report);
-                              }}
-                              title="View Details"
-                            >
-                              <FontAwesomeIcon icon={faEye} />
-                            </button>
-                            <button 
-                              className="action-btn update"
-                              onClick={(e) => handleUpdateClick(e, report)}
-                              title="Update Status"
-                            >
-                              <FontAwesomeIcon icon={faCheck} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                        )}
+                        <span>{report.reporter?.fullName || 'Unknown User'}</span>
+                      </div>
+                    </td>
+                    <td className="description-cell" title={report.description}>
+                      {report.description?.length > 50 
+                        ? `${report.description.substring(0, 50)}...` 
+                        : report.description || 'No description'}
+                    </td>
+                    <td className="date-cell">
+                      <FontAwesomeIcon icon={faCalendarAlt} />
+                      {getTimeAgo(report.createdAt)}
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div className="action-buttons">
+                        <button 
+                          className="action-btn view"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewFullDetails(report);
+                          }}
+                          title="View Details"
+                        >
+                          <FontAwesomeIcon icon={faEye} />
+                        </button>
+                        <button 
+                          className="action-btn update"
+                          onClick={(e) => handleUpdateClick(e, report)}
+                          title="Update Status"
+                        >
+                          <FontAwesomeIcon icon={faCheck} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="pagination">
-                  <button 
-                    onClick={() => handlePageChange((filters.page || 1) - 1)}
-                    disabled={filters.page === 1}
-                    className="page-btn"
-                  >
-                    <FontAwesomeIcon icon={faChevronLeft} />
-                  </button>
-                  <span className="page-info">
-                    Page {filters.page} of {totalPages}
-                  </span>
-                  <button 
-                    onClick={() => handlePageChange((filters.page || 1) + 1)}
-                    disabled={filters.page === totalPages}
-                    className="page-btn"
-                  >
-                    <FontAwesomeIcon icon={faChevronRight} />
-                  </button>
-                </div>
-              )}
-            </>
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="pagination">
+              <button 
+                onClick={() => handlePageChange((filters.page || 1) - 1)}
+                disabled={filters.page === 1}
+                className="page-btn"
+              >
+                <FontAwesomeIcon icon={faChevronLeft} />
+              </button>
+              <span className="page-info">
+                Page {filters.page} of {totalPages}
+              </span>
+              <button 
+                onClick={() => handlePageChange((filters.page || 1) + 1)}
+                disabled={filters.page === totalPages}
+                className="page-btn"
+              >
+                <FontAwesomeIcon icon={faChevronRight} />
+              </button>
+            </div>
           )}
         </>
       )}
@@ -909,7 +945,7 @@ const Reports: React.FC = () => {
         </div>
       )}
 
-      {/* Update Modal - WITH SEQUENTIAL STATUS OPTIONS */}
+      {/* Update Modal */}
       {showUpdateModal && selectedReport && (
         <div className="modal-overlay" onClick={closeUpdateModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>

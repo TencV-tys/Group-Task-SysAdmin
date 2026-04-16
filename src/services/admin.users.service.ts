@@ -1,3 +1,5 @@
+// services/admin.users.service.ts - FRONTEND (FIXED)
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export interface User {
@@ -13,18 +15,25 @@ export interface User {
   lastLoginAt?: string;
   groupsCount: number;
   tasksCompleted: number;
+  isGroupAdmin?: boolean; // Add this flag
 }
+
 export interface UserStats {
   total: number;
   active: number;
   suspended: number;
-  groupAdmins:number; 
-  admins: number;
+  groupAdmins: number;  // This is the count of group admins
+  banned: number;       // Add this to match backend
+  byRole?: {            // Optional, if backend returns it
+    GROUP_ADMIN: number;
+    USER: number;
+  };
+  // Legacy fields (keep for compatibility)
+  admins?: number;
   newToday?: number;
   newThisWeek?: number;
   newThisMonth?: number;
 }
-
 
 export interface UserDetails extends User {
   groups: Array<{
@@ -159,24 +168,37 @@ class AdminUsersServiceClass {
     }
   }
 
+  // ========== GET USER STATISTICS ==========
   static async getUserStats(): Promise<{ success: boolean; data?: UserStats; message?: string }> {
-  try {
-    const response = await fetch(`${API_URL}/api/admin/users/stats`, {
-      method: 'GET',
-      credentials: 'include',
-      headers: await this.getHeaders()
-    });
+    try {
+      console.log('📊 Fetching user stats from:', `${API_URL}/api/admin/users/stats`);
+      
+      const response = await fetch(`${API_URL}/api/admin/users/stats`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: await this.getHeaders()
+      });
 
-    const result = await response.json();
-    return result;
-  } catch (error) {
-    console.error('Error fetching user stats:', error);
-    return {
-      success: false,
-      message: 'Failed to fetch user statistics'
-    };
+      const result = await response.json();
+      console.log('📊 User stats response:', result);
+      
+      // Transform the response to match frontend expectations if needed
+      if (result.success && result.data) {
+        // Ensure groupAdmins is present
+        if (result.data.groupAdmins === undefined && result.data.admins !== undefined) {
+          result.data.groupAdmins = result.data.admins;
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('❌ Error fetching user stats:', error);
+      return {
+        success: false,
+        message: 'Failed to fetch user statistics'
+      };
+    }
   }
-}
 }
 
 export const AdminUsersService = AdminUsersServiceClass;
