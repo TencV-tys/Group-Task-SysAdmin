@@ -1,6 +1,7 @@
-// components/AuditModal.tsx
-import React from 'react';
-import type{ AuditLog } from '../services/admin.audit.service';
+// components/AuditModal.tsx - WITH DELETE BUTTON
+
+import React, { useState } from 'react';
+import type { AuditLog } from '../services/admin.audit.service';
 import LoadingScreen from './LoadingScreen';
 import './styles/AuditModal.css';
 
@@ -9,9 +10,20 @@ interface AuditModalProps {
   onClose: () => void;
   log: AuditLog | null;
   loading: boolean;
+  onDelete?: (logId: string) => Promise<void>;
+  onDeleted?: () => void;
 }
 
-const AuditModal: React.FC<AuditModalProps> = ({ isOpen, onClose, log, loading }) => {
+const AuditModal: React.FC<AuditModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  log, 
+  loading,
+  onDelete,
+  onDeleted 
+}) => {
+  const [isDeleting, setIsDeleting] = useState(false);
+
   if (!isOpen) return null;
 
   const formatDateTime = (dateString: string) => {
@@ -40,6 +52,24 @@ const AuditModal: React.FC<AuditModalProps> = ({ isOpen, onClose, log, loading }
     return '📝';
   };
 
+  const handleDelete = async () => {
+    if (!log || !onDelete) return;
+    
+    if (window.confirm(`Are you sure you want to delete this audit log?\n\nAction: ${log.action}\nDate: ${formatDateTime(log.createdAt)}\n\nThis action cannot be undone.`)) {
+      setIsDeleting(true);
+      try {
+        await onDelete(log.id);
+        if (onDeleted) onDeleted();
+        onClose();
+      } catch (error) {
+        console.error('Failed to delete log:', error);
+        alert('Failed to delete audit log');
+      } finally {
+        setIsDeleting(false);
+      }
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={e => e.stopPropagation()}>
@@ -51,9 +81,9 @@ const AuditModal: React.FC<AuditModalProps> = ({ isOpen, onClose, log, loading }
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
 
-        {loading ? (
+        {loading || isDeleting ? (
           <div className="modal-loading">
-            <LoadingScreen message="Loading log details..." />
+            <LoadingScreen message={isDeleting ? "Deleting audit log..." : "Loading log details..."} />
           </div>
         ) : log ? (
           <div className="modal-body">
@@ -151,7 +181,16 @@ const AuditModal: React.FC<AuditModalProps> = ({ isOpen, onClose, log, loading }
         )}
 
         <div className="modal-footer">
-          <button className="modal-close-btn" onClick={onClose}>
+          {onDelete && log && (
+            <button 
+              className="modal-delete-btn" 
+              onClick={handleDelete}
+              disabled={isDeleting}
+            >
+              🗑️ Delete Log
+            </button>
+          )}
+          <button className="modal-close-btn" onClick={onClose}> 
             Close
           </button>
         </div>

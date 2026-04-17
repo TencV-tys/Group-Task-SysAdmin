@@ -1,4 +1,5 @@
-// services/admin.audit.service.ts
+// services/admin.audit.service.ts - WITH DELETE METHOD
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export interface AuditLogFilters {
@@ -10,8 +11,8 @@ export interface AuditLogFilters {
   offset?: number;
   search?: string;
 }
-
-export interface AuditLog {
+ 
+export interface AuditLog { 
   id: string;
   action: string;
   adminId: string;
@@ -32,6 +33,7 @@ export interface AuditLog {
     avatarUrl?: string;
   };
 }
+
 export interface AuditLogDetails {
   [key: string]: unknown;
   method?: string;
@@ -53,6 +55,7 @@ export interface AuditLogDetails {
     message: string;
   }>;
 }
+
 export interface AuditLogsResponse {
   success: boolean;
   message: string;
@@ -97,7 +100,7 @@ export interface AuditStatisticsResponse {
       targetUserEmail?: string;
       createdAt: string;
       ipAddress?: string;
-      details?: AuditLogDetails; // 👈 Replaced 'any' with proper type
+      details?: AuditLogDetails;
     }>;
     dailyActivity?: Array<{
       date: string;
@@ -112,31 +115,37 @@ export interface AuditExportData {
   logs?: AuditLog[];
 }
 
+export interface DeleteAuditLogResponse {
+  success: boolean;
+  message: string;
+}
+
 export class AdminAuditService {
   // ========== GET AUDIT LOGS ==========
-  static async getLogs(filters?: AuditLogFilters): Promise<AuditLogsResponse> {
-    try {
-      const params = new URLSearchParams();
-      
-      if (filters) {
-        Object.entries(filters).forEach(([key, value]) => {
-          if (value !== undefined && value !== '') {
-            params.append(key, value.toString());
-          }
-        });
-      }
-      
-      const queryString = params.toString();
-      const url = `${API_URL}/api/admin/audit${queryString ? `?${queryString}` : ''}`;
-      
-      const response = await fetch(url, {
-        credentials: 'include'
+static async getLogs(filters?: AuditLogFilters): Promise<AuditLogsResponse> {
+  try {
+    const params = new URLSearchParams();
+    
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== '') {
+          params.append(key, value.toString());
+        }
       });
-      return await response.json();
-    } catch {
-      return { success: false, message: 'Network error' };
     }
+    
+    const queryString = params.toString();
+    const url = `${API_URL}/api/admin/audit${queryString ? `?${queryString}` : ''}`;
+    
+    const response = await fetch(url, {
+      credentials: 'include'
+      // ✅ No custom headers
+    });
+    return await response.json();
+  } catch {
+    return { success: false, message: 'Network error' };
   }
+}
 
   // ========== GET AUDIT LOG BY ID ==========
   static async getLogById(logId: string): Promise<AuditLogResponse> {
@@ -150,31 +159,35 @@ export class AdminAuditService {
     }
   }
 
-  // ========== GET AUDIT STATISTICS ==========
-  static async getStatistics(filters?: { 
-    startDate?: string; 
-    endDate?: string;
-  }): Promise<AuditStatisticsResponse> {
-    try {
-      const params = new URLSearchParams();
-      
-      if (filters) {
-        if (filters.startDate) params.append('startDate', filters.startDate);
-        if (filters.endDate) params.append('endDate', filters.endDate);
-      }
-      
-      const queryString = params.toString();
-      const url = `${API_URL}/api/admin/audit/statistics${queryString ? `?${queryString}` : ''}`;
-      
-      const response = await fetch(url, {
-        credentials: 'include'
+static async getStatistics(filters?: { 
+  startDate?: string; 
+  endDate?: string;
+  _t?: string;
+}): Promise<AuditStatisticsResponse> { 
+  try {
+    const params = new URLSearchParams();
+    
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== '') {
+          params.append(key, value.toString());
+        }
       });
-      return await response.json();
-    } catch {
-      return { success: false, message: 'Network error' };
     }
+    
+    const queryString = params.toString();
+    const url = `${API_URL}/api/admin/audit/statistics${queryString ? `?${queryString}` : ''}`;
+    
+    const response = await fetch(url, {
+      credentials: 'include'
+      // ✅ Remove headers - they cause CORS issues
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching statistics:', error);
+    return { success: false, message: 'Network error' };
   }
-
+}
   // ========== EXPORT AUDIT LOGS ==========
   static async exportLogs(
     format?: 'json' | 'csv', 
@@ -226,4 +239,41 @@ export class AdminAuditService {
       return { success: false, message: 'Network error' };
     }
   }
+
+// ========== DELETE SINGLE AUDIT LOG ==========
+static async deleteLog(logId: string): Promise<DeleteAuditLogResponse> {
+  try {
+    // ✅ Get admin ID from localStorage
+    let adminId = '';
+    if (typeof window !== 'undefined') {
+      const adminStr = localStorage.getItem('admin');
+      if (adminStr) {
+        try {
+          const admin = JSON.parse(adminStr);
+          adminId = admin.id;
+        } catch (e) {
+          console.error('Failed to parse admin data',e);
+        }
+      }
+    }
+    
+    const response = await fetch(`${API_URL}/api/admin/audit/${logId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ adminId }) // ✅ Send adminId in body
+    });
+    
+    const result = await response.json();
+    return result;
+  } catch (error) {
+    console.error('Error deleting audit log:', error);
+    return { 
+      success: false, 
+      message: 'Network error while deleting audit log' 
+    };
+  }
+}
 }

@@ -57,6 +57,7 @@ interface UseAdminAuditReturn {
   };
   fetchLogs: (params?: FetchLogsParams) => Promise<FetchLogsResult>;
   fetchStatistics: (params?: StatisticsParams) => Promise<FetchStatisticsResult>;
+   deleteLog: (id: string) => Promise<{ success: boolean; message: string }>; 
   getLogById: (id: string) => Promise<FetchLogByIdResult>;
   refresh: () => Promise<void>;
   setPagination: React.Dispatch<React.SetStateAction<{
@@ -149,6 +150,26 @@ export function useAdminAudit(initialLimit: number = 20): UseAdminAuditReturn {
     await fetchStatistics();
   }, [pagination.page, pagination.limit, fetchLogs, fetchStatistics]);
 
+    const deleteLog = useCallback(async (logId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const result = await AdminAuditService.deleteLog(logId);
+      if (result.success) {
+        // Remove the deleted log from the list
+        setLogs(prev => prev.filter(log => log.id !== logId));
+        // Update pagination total
+        setPagination(prev => ({
+          ...prev,
+          total: Math.max(0, prev.total - 1)
+        }));
+      }
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to delete log';
+      return { success: false, message: errorMessage };
+    }
+  }, []);
+
+
   return {
     logs,
     loading,
@@ -158,7 +179,8 @@ export function useAdminAudit(initialLimit: number = 20): UseAdminAuditReturn {
     fetchLogs,
     fetchStatistics,
     getLogById,
+      deleteLog,
     refresh,
     setPagination,
   };
-}
+} 

@@ -1,4 +1,5 @@
-// pages/AdminAudit.tsx - Fixed to show only top 3 action stat cards
+// pages/AdminAudit.tsx - FULLY UPDATED & FIXED
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAdminAudit } from '../hooks/useAdminAudit';
 import AuditModal from '../components/AuditModal';
@@ -28,14 +29,15 @@ interface FetchParams {
 
 const AdminAudit = () => {
   console.log('🏁 [AdminAudit] Component rendering');
-  
+   
   const {
     logs: allLogs,
     loading,
-    error,
+    error, 
     pagination,
     fetchLogs,
     getLogById,
+    deleteLog, 
     setPagination,
   } = useAdminAudit(20);
 
@@ -97,29 +99,54 @@ const AdminAudit = () => {
     return params;
   }, [dateRange, startDate, endDate]);
 
-  // Fetch stats for the date range (NOT filtered by action)
+  // Fetch stats for date range
   const fetchDateRangeStats = useCallback(async () => {
     const dateParams = getDateRangeParams();
     console.log('📊 [AdminAudit] Fetching stats for date range:', dateParams);
     setStatsLoading(true);
     
     try {
-      const result = await AdminAuditService.getStatistics(dateParams);
+      const bustedParams = {
+        ...dateParams,
+        _t: Date.now().toString()
+      };
+      const result = await AdminAuditService.getStatistics(bustedParams);
+      console.log('📊 [AdminAudit] byAction data:', result.statistics?.byAction);
+console.log('📊 [AdminAudit] byAction length:', result.statistics?.byAction?.length);
       console.log('📊 [AdminAudit] Stats result:', result);
       if (result.success && result.statistics) {
         setDateRangeStats({
           total: result.statistics.total,
           byAction: result.statistics.byAction || []
         });
+      } else {
+        // Set empty stats to show the component
+        setDateRangeStats({
+          total: 0,
+          byAction: []
+        });
       }
     } catch (err) {
       console.error('❌ [AdminAudit] Failed to fetch stats:', err);
+      setDateRangeStats({
+        total: 0,
+        byAction: []
+      });
     } finally {
       setStatsLoading(false);
     }
   }, [getDateRangeParams]);
 
-  // Fetch logs (sending action filter to backend now that backend is fixed)
+  // ✅ Fetch stats on initial mount (run once)
+  useEffect(() => {
+    fetchDateRangeStats();
+  }, [fetchDateRangeStats]);
+
+  // ✅ Fetch stats when date range changes
+useEffect(() => {
+  fetchDateRangeStats();
+}, [dateRange, startDate, endDate, fetchDateRangeStats]);
+  // Fetch logs when filters change
   useEffect(() => {
     const fetchData = async () => {
       const dateParams = getDateRangeParams();
@@ -131,7 +158,6 @@ const AdminAudit = () => {
 
       if (searchTerm) params.search = searchTerm;
       if (adminFilter) params.adminId = adminFilter;
-      // NOW SEND action filter to backend (backend is fixed)
       if (actionFilter) params.action = actionFilter;
       if (dateParams.startDate) params.startDate = dateParams.startDate;
       if (dateParams.endDate) params.endDate = dateParams.endDate;
@@ -144,7 +170,7 @@ const AdminAudit = () => {
     fetchData();
   }, [pagination.page, pagination.limit, searchTerm, adminFilter, actionFilter, getDateRangeParams, fetchLogs]);
 
-  // Client-side filtering by action (fallback, but backend should handle it now)
+  // Client-side filtering by action
   useEffect(() => {
     if (!allLogs) {
       setFilteredLogs([]);
@@ -153,19 +179,13 @@ const AdminAudit = () => {
 
     let filtered = [...allLogs];
     
-    // Additional client-side filter if needed
     if (actionFilter) {
       filtered = filtered.filter(log => log.action === actionFilter);
       console.log(`🔍 Client-side filter: showing ${filtered.length} logs with action "${actionFilter}" out of ${allLogs.length} total`);
-    }
+    } 
     
     setFilteredLogs(filtered);
   }, [allLogs, actionFilter]);
-
-  // Fetch stats when date range changes
-  useEffect(() => {
-    fetchDateRangeStats();
-  }, [dateRange, startDate, endDate, fetchDateRangeStats]);
 
   // Handle stat card click
   const handleStatClick = useCallback((action: string) => {
@@ -214,7 +234,7 @@ const AdminAudit = () => {
         setSelectedLog(null);
       }
     } catch (error) { 
-      console.error(error)
+      console.error(error);
       setShowModal(false);
       setSelectedLog(null);
     } finally {
@@ -225,6 +245,26 @@ const AdminAudit = () => {
 
   const handleRowClick = (logId: string) => {
     handleViewLog(logId);
+  };
+
+  const handleDeleteLog = async (logId: string) => {
+    const result = await deleteLog(logId);
+    if (result.success) {
+      // Force full refresh
+      await fetchDateRangeStats(); 
+      
+      // Refresh current page logs
+      const dateParams = getDateRangeParams();
+      await fetchLogs({
+        limit: pagination.limit,
+        offset: (pagination.page - 1) * pagination.limit,
+        ...(searchTerm && { search: searchTerm }),
+        ...(adminFilter && { adminId: adminFilter }),
+        ...(actionFilter && { action: actionFilter }),
+        ...(dateParams.startDate && { startDate: dateParams.startDate }),
+        ...(dateParams.endDate && { endDate: dateParams.endDate }),
+      });
+    }
   };
 
   const handleExport = async (format: 'json' | 'csv') => {
@@ -328,15 +368,12 @@ const AdminAudit = () => {
     return <LoadingScreen message="Loading audit logs..." fullScreen />;
   }
 
-  // Get top 3 actions from dateRangeStats (sorted by count, highest first)
-  // This will automatically show the 3 most frequent actions (ADMIN_VIEW_AUDIT_LOGS, ADMIN_VIEW_AUDIT_STATISTICS, etc.)
   const topActions = dateRangeStats?.byAction
     ?.sort((a, b) => b.count - a.count)
     .slice(0, 3) || [];
 
   console.log('📊 [AdminAudit] Top 3 actions for cards:', topActions);
 
-  // Use filtered logs for display
   const displayLogs = filteredLogs;
   const displayTotal = filteredLogs.length;
 
@@ -351,12 +388,12 @@ const AdminAudit = () => {
           </div>
           <div className="audit-header-actions">
             <button 
-    className="audit-clear-all-btn" 
-    onClick={clearFilters}
-    disabled={loading}
-  >
-    Clear All Filters
-  </button>
+              className="audit-clear-all-btn" 
+              onClick={clearFilters}
+              disabled={loading}
+            >
+              Clear All Filters
+            </button>
             <div className="audit-export-dropdown">
               <button className="audit-export-btn">
                 <span>📥</span>
@@ -370,10 +407,11 @@ const AdminAudit = () => {
           </div>
         </div>
 
-        {/* Stats Cards - Shows ONLY 3 cards (Total + Top 2 Actions = 3 cards total) */}
-        {dateRangeStats && (
+        {/* Stats Cards */}
+        {statsLoading ? (
+          <div className="audit-stats-loading">Loading statistics...</div>
+        ) : dateRangeStats ? (
           <div className="audit-stats">
-            {/* Total Logs Card */}
             <div 
               className={`audit-stat-card ${actionFilter === '' ? 'active' : ''}`}
               onClick={() => handleStatClick('')}
@@ -384,8 +422,7 @@ const AdminAudit = () => {
               {actionFilter === '' && <div className="stat-active-indicator" />}
             </div>
 
-            {/* Top Action Cards - Shows top 2 actions (so total cards = 3) */}
-            {topActions.slice(0, 2).map((actionStat) => (
+            {topActions.slice(0, 3).map((actionStat) => (
               <div 
                 key={actionStat.action}
                 className={`audit-stat-card ${actionFilter === actionStat.action ? 'active' : ''}`}
@@ -398,11 +435,8 @@ const AdminAudit = () => {
               </div>
             ))}
           </div>
-        )}
-
-        {/* Stats Loading */}
-        {statsLoading && !dateRangeStats && (
-          <div className="audit-stats-loading">Loading stats...</div>
+        ) : (
+          <div className="audit-stats-error">No statistics available</div>
         )}
 
         {/* Active Filter Indicator */}
@@ -415,7 +449,6 @@ const AdminAudit = () => {
           </div>
         )}
 
-        {/* Active Admin Filter Indicator */}
         {adminFilter && (
           <div className="audit-active-filter audit-active-filter-admin">
             <span>Filtering by Admin ID: <strong>{adminFilter}</strong></span>
@@ -581,7 +614,18 @@ const AdminAudit = () => {
         )}
       </div>
 
-      {showModal && <AuditModal isOpen={showModal} onClose={closeModal} log={selectedLog} loading={modalLoading} />}
+      {showModal && (
+        <AuditModal 
+          isOpen={showModal} 
+          onClose={closeModal} 
+          log={selectedLog} 
+          loading={modalLoading}
+          onDelete={handleDeleteLog}
+          onDeleted={() => {
+            console.log('Log deleted successfully');
+          }}
+        />
+      )}
     </div>
   );
 };

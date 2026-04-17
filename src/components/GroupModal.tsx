@@ -23,6 +23,7 @@ const REPORT_THRESHOLDS = {
   HARD_DELETE: 10,
 };
 
+// Update the GroupWithDetails interface
 interface GroupWithDetails extends Group {
   stats?: {
     totalTasks: number;
@@ -42,6 +43,12 @@ interface GroupWithDetails extends Group {
       roleStatus: string;
     };
   }>;
+  creator?: {
+    id: string;
+    fullName: string;
+    email: string;
+    avatarUrl?: string;  // ✅ Add this line
+  };
 }
 
 interface GroupModalProps {
@@ -318,22 +325,30 @@ const GroupModal: React.FC<GroupModalProps> = ({
                 )}
               </div>
             </div>
-
-            {/* Creator */}
-            {groupWithDetails.creator && (
-              <div className="modal-section">
-                <h3>Creator</h3>
-                <div className="creator-info">
-                  <div className="creator-avatar">
-                    {groupWithDetails.creator.fullName?.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="creator-details">
-                    <div className="creator-name">{groupWithDetails.creator.fullName}</div>
-                    <div className="creator-email">{groupWithDetails.creator.email}</div>
-                  </div>
-                </div>
-              </div>
-            )}
+ 
+              {/* Creator */}
+{groupWithDetails.creator && (
+  <div className="modal-section">
+    <h3>Creator</h3>
+    <div className="creator-info">
+      <div className="creator-avatar">
+        {groupWithDetails.creator.avatarUrl ? (
+          <img 
+            src={groupWithDetails.creator.avatarUrl} 
+            alt={groupWithDetails.creator.fullName}
+            className="creator-avatar-img"
+          />
+        ) : (
+          groupWithDetails.creator.fullName?.charAt(0).toUpperCase()
+        )}
+      </div>
+      <div className="creator-details">
+        <div className="creator-name">{groupWithDetails.creator.fullName}</div>
+        <div className="creator-email">{groupWithDetails.creator.email}</div>
+      </div>
+    </div>
+  </div>
+)}
 
             {/* Statistics */}
             <div className="modal-section">
