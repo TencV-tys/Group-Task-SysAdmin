@@ -1,4 +1,4 @@
-// pages/Reports.tsx - FULLY UPDATED AND WORKING
+// pages/Reports.tsx - FULLY UPDATED WITH PROPER REFRESH
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Report, ReportFilters } from '../services/admin.report.services';
@@ -15,13 +15,15 @@ import {
   faEye,
   faCheck,
   faTimes,
-  faSpinner,
+  faSpinner, 
   faExclamationTriangle,
   faChevronLeft,
   faChevronRight,
   faRedoAlt,
   faUsers,
   faCalendarAlt,
+  faTrash,
+  faTrashAlt,
 } from '@fortawesome/free-solid-svg-icons';
 import './styles/Reports.css';
 
@@ -76,6 +78,17 @@ interface ReportStatusSocketData {
   resolvedBy: string;
   resolutionNotes: string | null;
   resolvedAt: string;
+}
+
+interface ReportDeletedSocketData {
+  reportId: string;
+  groupId: string;
+  groupName: string;
+  reporterId: string;
+  reporterName: string;
+  deletedBy: string;
+  hardDelete: boolean;
+  deletedAt: string;
 }
 
 // Safe Image Component
@@ -144,44 +157,77 @@ const Reports: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<{ id: string; title: string; message: string } | null>(null);
   const [hasNewReport, setHasNewReport] = useState(false);
   
+  // Delete state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
+  const [hardDelete, setHardDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [bulkDeleteMode, setBulkDeleteMode] = useState(false);
+  const [selectedReports, setSelectedReports] = useState<Set<string>>(new Set());
+  
   const isMountedRef = useRef(true);
   const toastTimeoutRef = useRef<number | undefined>(undefined);
   const lastShownReportIdRef = useRef<string | null>(null);
   const pendingToastRef = useRef<{ id: string; title: string; message: string } | null>(null);
 
+  // Helper function to refresh all data
+  const refreshAllData = useCallback(async () => {
+    try {
+      const queryFilters = { ...filters };
+      if (queryFilters.status === 'ALL') delete queryFilters.status;
+      
+      const [freshReports, freshStats] = await Promise.all([
+        AdminReportsService.getReports(queryFilters),
+        AdminReportsService.getReportStatistics()
+      ]);
+      
+      if (freshReports.success && isMountedRef.current) {
+        setReports(freshReports.reports || []);
+        setTotalReports(freshReports.pagination?.total || 0);
+      }
+      
+      if (freshStats.success && freshStats.statistics && isMountedRef.current) {
+        setStats(freshStats.statistics);
+      }
+      
+      return true;
+    } catch (err) {
+      console.error('Refresh error:', err);
+      return false;
+    }
+  }, [filters]);
+
   // ===== FETCH REPORTS =====
-const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
-  try {
-    const apiFilters = filterParams || filters;
-    const queryFilters = { ...apiFilters };
-    if (queryFilters.status === 'ALL') delete queryFilters.status;
-    
-    console.log('📥 Fetching reports with filters:', queryFilters);
-    
-    const result = await AdminReportsService.getReports(queryFilters);
-    
-    if (result.success && isMountedRef.current) {
-      setReports(result.reports || []);
-      setTotalReports(result.pagination?.total || 0);
-      setHasNewReport(false);
-      setError(null);
-    } else if (isMountedRef.current) {
-      setError(result.message || 'Failed to load reports');
+  const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
+    try {
+      const apiFilters = filterParams || filters;
+      const queryFilters = { ...apiFilters };
+      if (queryFilters.status === 'ALL') delete queryFilters.status;
+      
+      console.log('📥 Fetching reports with filters:', queryFilters);
+      
+      const result = await AdminReportsService.getReports(queryFilters);
+      
+      if (result.success && isMountedRef.current) {
+        setReports(result.reports || []);
+        setTotalReports(result.pagination?.total || 0);
+        setHasNewReport(false);
+        setError(null);
+      } else if (isMountedRef.current) {
+        setError(result.message || 'Failed to load reports');
+      }
+    } catch (err) {
+      console.error('Fetch reports error:', err);
+      if (isMountedRef.current) {
+        setError('Network error. Please try again.');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  } catch (err) {
-    console.error('Fetch reports error:', err);
-    if (isMountedRef.current) {
-      setError('Network error. Please try again.');
-    }
-  } finally {
-    if (isMountedRef.current) {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }
-}, [filters]);
-
-
+  }, [filters]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -210,8 +256,7 @@ const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
         };
       }
       
-      fetchReports(filters);
-      fetchStats();
+      refreshAllData();
       setHasNewReport(true);
     };
     
@@ -219,8 +264,7 @@ const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
       const data = args[0] as ReportStatusSocketData;
       console.log('📢 Real-time: Report status changed', data);
       
-      fetchReports(filters);
-      fetchStats();
+      refreshAllData();
       
       setToastMessage({
         id: data.reportId,
@@ -228,9 +272,7 @@ const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
         message: `Report #${data.reportId.slice(0, 8)} changed from ${data.oldStatus} to ${data.newStatus}`
       });
       
-      setTimeout(() => {
-        setToastMessage(null);
-      }, 3000);
+      setTimeout(() => setToastMessage(null), 3000);
       
       if (selectedReport?.id === data.reportId && isMountedRef.current) {
         AdminReportsService.getReportById(data.reportId).then(result => {
@@ -241,14 +283,36 @@ const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
       }
     };
     
+    const handleReportDeleted = (...args: unknown[]) => {
+      const data = args[0] as ReportDeletedSocketData;
+      console.log('📢 Real-time: Report deleted', data);
+      
+      refreshAllData();
+      
+      setToastMessage({
+        id: data.reportId,
+        title: '🗑️ Report Deleted',
+        message: `Report #${data.reportId.slice(0, 8)} was deleted by ${data.deletedBy}`
+      });
+      
+      setTimeout(() => setToastMessage(null), 3000);
+      
+      if (selectedReport?.id === data.reportId) {
+        setShowDetailsModal(false);
+        setSelectedReport(null);
+      }
+    };
+    
     adminSocket.on('report:new', handleNewReport);
     adminSocket.on('report:status', handleReportStatusChanged);
+    adminSocket.on('report:deleted', handleReportDeleted);
     
     return () => {
       adminSocket.off('report:new', handleNewReport);
       adminSocket.off('report:status', handleReportStatusChanged);
+      adminSocket.off('report:deleted', handleReportDeleted);
     };
-  }, [filters, fetchReports, fetchStats, selectedReport]);
+  }, [refreshAllData, selectedReport]);
 
   // ===== Show toast for new report =====
   useEffect(() => {
@@ -269,10 +333,10 @@ const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
   }, [reports]);
 
   useEffect(() => {
-  if (isMountedRef.current) {
-    fetchStats();
-  }
-}, [filters.status, fetchStats]);
+    if (isMountedRef.current) {
+      fetchStats();
+    }
+  }, [filters.status, fetchStats]);
 
   // ===== Initial data load =====
   useEffect(() => {
@@ -297,11 +361,11 @@ const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
     }
   }, [filters.page, filters.status, filters.search, fetchReports, filters, loading]);
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setRefreshing(true);
-    Promise.all([fetchReports(filters), fetchStats()]).finally(() => {
-      setHasNewReport(false);
-    });
+    await refreshAllData();
+    setHasNewReport(false);
+    setRefreshing(false);
   };
 
   const handleSearch = () => {
@@ -313,12 +377,16 @@ const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
     const newFilters = { ...filters, status, page: 1 };
     setFilters(newFilters);
     setHasNewReport(false);
+    setBulkDeleteMode(false);
+    setSelectedReports(new Set());
   };
 
   const handleStatClick = (status: string) => {
     const newFilters = { ...filters, status, page: 1 };
     setFilters(newFilters);
     setHasNewReport(false);
+    setBulkDeleteMode(false);
+    setSelectedReports(new Set());
   };
 
   const handlePageChange = (newPage: number) => {
@@ -327,7 +395,9 @@ const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
   };
 
   const handleRowClick = (report: Report) => {
-    handleViewDetails(report);
+    if (!bulkDeleteMode) {
+      handleViewDetails(report);
+    }
   };
 
   const handleViewDetails = (report: Report) => {
@@ -344,70 +414,152 @@ const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
     setShowUpdateModal(true);
   };
 
-  // Replace your handleUpdateStatus function with this:
+  // ===== DELETE HANDLERS =====
+  const handleDeleteClick = (e: React.MouseEvent, report: Report) => {
+    e.stopPropagation();
+    setReportToDelete(report);
+    setHardDelete(false);
+    setShowDeleteModal(true);
+  };
 
-const handleUpdateStatus = async () => {
-  if (!selectedReport) return;
-  
-  setSubmitting(true);
-  try {
-    const result = await AdminReportsService.updateReportStatus(
-      selectedReport.id,
-      updateStatus,
-      updateNotes
-    );
-    
-    if (result.success) {
-      setShowUpdateModal(false);
-      
-      // ✅ Force a complete refresh with current filters
-      // Reset loading state to trigger a fresh fetch
-      setLoading(true);
-      
-      // Fetch fresh data with current filters
-      const queryFilters = { ...filters };
-      if (queryFilters.status === 'ALL') delete queryFilters.status;
-      
-      const freshReports = await AdminReportsService.getReports(queryFilters);
-      const freshStats = await AdminReportsService.getReportStatistics();
-      
-      if (freshReports.success && isMountedRef.current) {
-        setReports(freshReports.reports || []);
-        setTotalReports(freshReports.pagination?.total || 0);
-      }
-      
-      if (freshStats.success && freshStats.statistics && isMountedRef.current) {
-        setStats(freshStats.statistics);
-      }
-      
-      setLoading(false);
-      
-      setToastMessage({
-        id: Date.now().toString(),
-        title: '✅ Status Updated',
-        message: `Report status changed to ${updateStatus}`
-      });
-      
-      setTimeout(() => {
-        setToastMessage(null);
-      }, 3000);
-      
-      setSelectedReport(null);
-      setSelectedRowId(null);
-      setUpdateStatus('');
-      setUpdateNotes('');
-      
+  const toggleBulkDeleteMode = () => {
+    setBulkDeleteMode(!bulkDeleteMode);
+    setSelectedReports(new Set());
+  };
+
+  const handleSelectReport = (reportId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newSelected = new Set(selectedReports);
+    if (newSelected.has(reportId)) {
+      newSelected.delete(reportId);
     } else {
-      alert(result.message || 'Failed to update report');
+      newSelected.add(reportId);
     }
-  } catch (err) {
-    console.error('Update error:', err);
-    alert('Network error. Please try again.');
-    setLoading(false);
-  } finally {
-    setSubmitting(false);
-  }
-};
+    setSelectedReports(newSelected);
+  };
+
+  const handleSelectAll = () => {
+    if (selectedReports.size === reports.length) {
+      setSelectedReports(new Set());
+    } else {
+      setSelectedReports(new Set(reports.map(r => r.id)));
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!reportToDelete) return;
+    
+    setDeleting(true);
+    try {
+      const result = await AdminReportsService.deleteReport(reportToDelete.id, hardDelete);
+      
+      if (result.success) {
+        setShowDeleteModal(false);
+        setReportToDelete(null);
+        
+        setRefreshing(true);
+        await refreshAllData();
+        setRefreshing(false);
+        
+        setToastMessage({
+          id: Date.now().toString(),
+          title: hardDelete ? '🗑️ Report Permanently Deleted' : '📁 Report Deleted',
+          message: `Report #${reportToDelete.id.slice(0, 8)} has been ${hardDelete ? 'permanently deleted' : 'moved to trash'}`
+        });
+        
+        setTimeout(() => setToastMessage(null), 3000);
+        
+        // Clear selection
+        setSelectedReports(new Set());
+        if (bulkDeleteMode) setBulkDeleteMode(false);
+        
+      } else {
+        alert(result.message || 'Failed to delete report');
+      }
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert('Network error. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedReports.size === 0) return;
+    
+    setDeleting(true);
+    try {
+      const result = await AdminReportsService.bulkDeleteReports(Array.from(selectedReports), hardDelete);
+      
+      if (result.success) {
+        setBulkDeleteMode(false);
+        setSelectedReports(new Set());
+        
+        setRefreshing(true);
+        await refreshAllData();
+        setRefreshing(false);
+        
+        setToastMessage({
+          id: Date.now().toString(),
+          title: hardDelete ? '🗑️ Reports Permanently Deleted' : '📁 Reports Deleted',
+          message: `${result.results?.successCount || 0} reports have been ${hardDelete ? 'permanently deleted' : 'moved to trash'}`
+        });
+        
+        setTimeout(() => setToastMessage(null), 3000);
+        
+      } else {
+        alert(result.message || 'Failed to delete reports');
+      }
+    } catch (err) {
+      console.error('Bulk delete error:', err);
+      alert('Network error. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleUpdateStatus = async () => {
+    if (!selectedReport) return;
+    
+    setSubmitting(true);
+    try {
+      const result = await AdminReportsService.updateReportStatus(
+        selectedReport.id,
+        updateStatus,
+        updateNotes
+      );
+      
+      if (result.success) {
+        setShowUpdateModal(false);
+        
+        setRefreshing(true);
+        await refreshAllData();
+        setRefreshing(false);
+        
+        setToastMessage({
+          id: Date.now().toString(),
+          title: '✅ Status Updated',
+          message: `Report status changed to ${updateStatus}`
+        });
+        
+        setTimeout(() => setToastMessage(null), 3000);
+        
+        // Clear selected report
+        setSelectedReport(null);
+        setSelectedRowId(null);
+        setUpdateStatus('');
+        setUpdateNotes('');
+        
+      } else {
+        alert(result.message || 'Failed to update report');
+      }
+    } catch (err) {
+      console.error('Update error:', err);
+      alert('Network error. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleViewFullDetails = async (report: Report) => {
     setSelectedRowId(report.id);
@@ -527,6 +679,8 @@ const handleUpdateStatus = async () => {
     };
     setFilters(newFilters);
     setHasNewReport(false);
+    setBulkDeleteMode(false);
+    setSelectedReports(new Set());
   };
 
   if (loading && !refreshing && reports.length === 0) {
@@ -558,94 +712,114 @@ const handleUpdateStatus = async () => {
         </button>
       </div>
 
-    {stats && (
-  <div className="stats-grid">
-    <div 
-      className={`stat-card total ${filters.status === 'ALL' ? 'active' : ''}`}
-      onClick={() => handleStatClick('ALL')}
-      style={{ cursor: 'pointer' }}
-    >
-      <div className="stat-icon">
-        <FontAwesomeIcon icon={faFlag} />
+      {stats && (
+        <div className="stats-grid">
+          <div 
+            className={`stat-card total ${filters.status === 'ALL' ? 'active' : ''}`}
+            onClick={() => handleStatClick('ALL')}
+            style={{ cursor: 'pointer' }}
+          >
+            <div className="stat-icon">
+              <FontAwesomeIcon icon={faFlag} />
+            </div>
+            <div className="stat-content">
+              <span className="stat-value">{stats.overview.total}</span>
+              <span className="stat-label">Total Reports</span>
+            </div>
+            {filters.status === 'ALL' && <div className="stat-active-indicator" />}
+          </div>
+          
+          <div 
+            className={`stat-card pending ${filters.status === 'PENDING' ? 'active' : ''}`}
+            onClick={() => handleStatClick('PENDING')}
+            style={{ cursor: 'pointer' }}
+          >
+            <div className="stat-icon">
+              <FontAwesomeIcon icon={faClock} />
+            </div>
+            <div className="stat-content">
+              <span className="stat-value">{stats.overview.pending}</span>
+              <span className="stat-label">Pending</span>
+            </div>
+            {filters.status === 'PENDING' && <div className="stat-active-indicator" />}
+          </div>
+          
+          <div 
+            className={`stat-card reviewing ${filters.status === 'REVIEWING' ? 'active' : ''}`}
+            onClick={() => handleStatClick('REVIEWING')}
+            style={{ cursor: 'pointer' }}
+          >
+            <div className="stat-icon">
+              <FontAwesomeIcon icon={faSpinner} />
+            </div>
+            <div className="stat-content">
+              <span className="stat-value">{stats.overview.reviewing}</span>
+              <span className="stat-label">Reviewing</span>
+            </div>
+            {filters.status === 'REVIEWING' && <div className="stat-active-indicator" />}
+          </div>
+          
+          <div 
+            className={`stat-card resolved ${filters.status === 'RESOLVED' ? 'active' : ''}`}
+            onClick={() => handleStatClick('RESOLVED')}
+            style={{ cursor: 'pointer' }}
+          >
+            <div className="stat-icon">
+              <FontAwesomeIcon icon={faCheckCircle} />
+            </div>
+            <div className="stat-content">
+              <span className="stat-value">{stats.overview.resolved}</span>
+              <span className="stat-label">Resolved</span>
+            </div>
+            {filters.status === 'RESOLVED' && <div className="stat-active-indicator" />}
+          </div>
+          
+          <div 
+            className={`stat-card dismissed ${filters.status === 'DISMISSED' ? 'active' : ''}`}
+            onClick={() => handleStatClick('DISMISSED')}
+            style={{ cursor: 'pointer' }}
+          >
+            <div className="stat-icon">
+              <FontAwesomeIcon icon={faTimes} />
+            </div>
+            <div className="stat-content">
+              <span className="stat-value">{stats.overview.dismissed}</span>
+              <span className="stat-label">Dismissed</span>
+            </div>
+            {filters.status === 'DISMISSED' && <div className="stat-active-indicator" />}
+          </div>
+          
+          <div className="stat-card rate">
+            <div className="stat-icon">
+              <FontAwesomeIcon icon={faCheckCircle} />
+            </div>
+            <div className="stat-content">
+              <span className="stat-value">{stats.overview.resolutionRate}%</span>
+              <span className="stat-label">Resolution Rate</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Bar */}
+      <div className="bulk-delete-bar">
+        <button 
+          className={`bulk-mode-btn ${bulkDeleteMode ? 'active' : ''}`}
+          onClick={toggleBulkDeleteMode}
+        >
+          <FontAwesomeIcon icon={faTrashAlt} />
+          {bulkDeleteMode ? 'Cancel' : 'Bulk Delete'}
+        </button>
+        
+        {bulkDeleteMode && selectedReports.size > 0 && (
+          <button 
+            className="bulk-delete-confirm"
+            onClick={() => setShowDeleteModal(true)}
+          >
+            Delete Selected ({selectedReports.size})
+          </button>
+        )}
       </div>
-      <div className="stat-content">
-        <span className="stat-value">{stats.overview.total}</span>
-        <span className="stat-label">Total Reports</span>
-      </div>
-      {filters.status === 'ALL' && <div className="stat-active-indicator" />}
-    </div>
-    
-    <div 
-      className={`stat-card pending ${filters.status === 'PENDING' ? 'active' : ''}`}
-      onClick={() => handleStatClick('PENDING')}
-      style={{ cursor: 'pointer' }}
-    >
-      <div className="stat-icon">
-        <FontAwesomeIcon icon={faClock} />
-      </div>
-      <div className="stat-content">
-        <span className="stat-value">{stats.overview.pending}</span>
-        <span className="stat-label">Pending</span>
-      </div>
-      {filters.status === 'PENDING' && <div className="stat-active-indicator" />}
-    </div>
-    
-    <div 
-      className={`stat-card reviewing ${filters.status === 'REVIEWING' ? 'active' : ''}`}
-      onClick={() => handleStatClick('REVIEWING')}
-      style={{ cursor: 'pointer' }}
-    >
-      <div className="stat-icon">
-        <FontAwesomeIcon icon={faSpinner} />
-      </div>
-      <div className="stat-content">
-        <span className="stat-value">{stats.overview.reviewing}</span>
-        <span className="stat-label">Reviewing</span>
-      </div>
-      {filters.status === 'REVIEWING' && <div className="stat-active-indicator" />}
-    </div>
-    
-    <div 
-      className={`stat-card resolved ${filters.status === 'RESOLVED' ? 'active' : ''}`}
-      onClick={() => handleStatClick('RESOLVED')}
-      style={{ cursor: 'pointer' }}
-    >
-      <div className="stat-icon">
-        <FontAwesomeIcon icon={faCheckCircle} />
-      </div>
-      <div className="stat-content">
-        <span className="stat-value">{stats.overview.resolved}</span>
-        <span className="stat-label">Resolved</span>
-      </div>
-      {filters.status === 'RESOLVED' && <div className="stat-active-indicator" />}
-    </div>
-    
-    <div 
-      className={`stat-card dismissed ${filters.status === 'DISMISSED' ? 'active' : ''}`}
-      onClick={() => handleStatClick('DISMISSED')}
-      style={{ cursor: 'pointer' }}
-    >
-      <div className="stat-icon">
-        <FontAwesomeIcon icon={faTimes} />
-      </div>
-      <div className="stat-content">
-        <span className="stat-value">{stats.overview.dismissed}</span>
-        <span className="stat-label">Dismissed</span>
-      </div>
-      {filters.status === 'DISMISSED' && <div className="stat-active-indicator" />}
-    </div>
-    
-    <div className="stat-card rate">
-      <div className="stat-icon">
-        <FontAwesomeIcon icon={faCheckCircle} />
-      </div>
-      <div className="stat-content">
-        <span className="stat-value">{stats.overview.resolutionRate}%</span>
-        <span className="stat-label">Resolution Rate</span>
-      </div>
-    </div>
-  </div>
-)}
 
       {/* Filters */}
       <div className="filters-bar">
@@ -709,6 +883,16 @@ const handleUpdateStatus = async () => {
             <table className="reports-table">
               <thead>
                 <tr>
+                  {bulkDeleteMode && (
+                    <th style={{ width: '40px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedReports.size === reports.length && reports.length > 0}
+                        onChange={handleSelectAll}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </th>
+                  )}
                   <th>Status</th>
                   <th>Type</th>
                   <th>Group</th>
@@ -723,8 +907,18 @@ const handleUpdateStatus = async () => {
                   <tr 
                     key={`${report.id}-${report.status}-${index}`} 
                     onClick={() => handleRowClick(report)}
-                    className={`report-row ${selectedRowId === report.id ? 'selected' : ''}`}
+                    className={`report-row ${selectedRowId === report.id ? 'selected' : ''} ${bulkDeleteMode ? 'bulk-mode' : ''}`}
                   >
+                    {bulkDeleteMode && (
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedReports.has(report.id)}
+                          onChange={() => {}}
+                          onClick={(e) => handleSelectReport(report.id, e)}
+                        />
+                       </td>
+                    )}
                     <td>
                       <span className={`status-badge ${getStatusBadgeClass(report.status)}`}>
                         <FontAwesomeIcon icon={getStatusIcon(report.status)} />
@@ -797,6 +991,16 @@ const handleUpdateStatus = async () => {
                         >
                           <FontAwesomeIcon icon={faCheck} />
                         </button>
+                        {/* Delete button - ONLY show when status is DISMISSED */}
+                        {report.status === 'DISMISSED' && (
+                          <button 
+                            className="action-btn delete"
+                            onClick={(e) => handleDeleteClick(e, report)}
+                            title="Delete Report"
+                          >
+                            <FontAwesomeIcon icon={faTrash} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1006,6 +1210,80 @@ const handleUpdateStatus = async () => {
                 disabled={submitting || !updateStatus || getAllowedNextStatuses(selectedReport.status).length === 0}
               >
                 {submitting ? 'Updating...' : 'Update Status'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (reportToDelete || selectedReports.size > 0) && (
+        <div className="modal-overlay" onClick={() => setShowDeleteModal(false)}>
+          <div className="modal-content delete-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>
+                <FontAwesomeIcon icon={faExclamationTriangle} style={{ color: '#fa5252', marginRight: '8px' }} />
+                Delete {selectedReports.size > 0 ? 'Reports' : 'Report'}
+              </h2>
+              <button className="modal-close" onClick={() => setShowDeleteModal(false)}>
+                <FontAwesomeIcon icon={faTimes} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>Are you sure you want to delete {selectedReports.size > 0 ? `these ${selectedReports.size} reports` : 'this report'}?</p>
+              
+              {reportToDelete && (
+                <div className="report-summary">
+                  <strong>Report ID:</strong> {reportToDelete.id.slice(0, 8)}...
+                  <br />
+                  <strong>Type:</strong> {reportToDelete.type}
+                  <br />
+                  <strong>Group:</strong> {reportToDelete.group?.name || 'Unknown'}
+                  <br />
+                  <strong>Reporter:</strong> {reportToDelete.reporter?.fullName || 'Unknown'}
+                </div>
+              )}
+              
+              {selectedReports.size > 0 && (
+                <div className="report-summary">
+                  <strong>Selected Reports:</strong> {selectedReports.size} reports
+                  <br />
+                  <strong>Report IDs:</strong> {Array.from(selectedReports).slice(0, 3).map(id => id.slice(0, 8)).join(', ')}
+                  {selectedReports.size > 3 && ` +${selectedReports.size - 3} more`}
+                </div>
+              )}
+              
+              <div className="delete-options">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={hardDelete}
+                    onChange={(e) => setHardDelete(e.target.checked)}
+                  />
+                  <span>Permanently delete (cannot be undone)</span>
+                </label>
+                {!hardDelete && (
+                  <p className="soft-delete-hint">
+                    Soft delete will mark the report as deleted and notify the reporter.
+                  </p>
+                )}
+                {hardDelete && (
+                  <p className="hard-delete-hint">
+                    ⚠️ Warning: This action is permanent and cannot be undone!
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="modal-cancel" onClick={() => setShowDeleteModal(false)}>
+                Cancel
+              </button>
+              <button 
+                className="modal-confirm delete"
+                onClick={selectedReports.size > 0 ? handleConfirmBulkDelete : handleConfirmDelete}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting...' : (selectedReports.size > 0 ? `Delete ${selectedReports.size} Reports` : 'Delete Report')}
               </button>
             </div>
           </div>

@@ -13,10 +13,89 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
+  from { opacity: 0; } 
   to { opacity: 1; }
 }
+/* Add these styles to your existing FeedbackModal.css */
 
+/* Delete Button */
+.feedback-modal-btn-delete {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.feedback-modal-btn-delete svg {
+  width: 18px;
+  height: 18px;
+}
+
+.feedback-modal-btn-delete:hover:not(:disabled) {
+  background: #dc2626;
+  color: white;
+  border-color: #dc2626;
+  transform: translateY(-1px);
+}
+
+/* Delete Confirmation Modal inside */
+.feedback-modal-delete-confirm {
+  background: #fff5f5;
+  padding: 20px;
+  border-radius: 12px;
+  margin-top: 16px;
+  border: 1px solid #ffc9c9;
+}
+
+.delete-preview {
+  background: white;
+  padding: 12px;
+  border-radius: 8px;
+  margin: 12px 0;
+  font-size: 14px;
+  color: #495057;
+  border-left: 3px solid #dc2626;
+}
+
+.delete-warning {
+  color: #dc2626;
+  font-size: 13px;
+  margin: 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.delete-confirm-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.feedback-modal-btn-delete-confirm {
+  padding: 8px 20px;
+  background: #dc2626;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.feedback-modal-btn-delete-confirm:hover:not(:disabled) {
+  background: #b91c1c;
+  transform: translateY(-1px);
+}
+
+.feedback-modal-btn-delete-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .feedback-modal {
   background: white;
   border-radius: 20px;

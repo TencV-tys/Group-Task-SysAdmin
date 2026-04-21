@@ -1,4 +1,4 @@
-// hooks/useAdminNotifications.ts - FIXED socket handlers
+// hooks/useAdminNotifications.ts - FIXED with proper args usage
 
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { AdminNotificationsService } from '../services/admin.notifications.service';
@@ -72,12 +72,11 @@ export function useAdminNotifications() {
 
   // ========== REAL-TIME SOCKET LISTENERS ==========
   useEffect(() => {
-    // ✅ FIXED: Properly typed handlers that match EventCallback signature
+    // ✅ All handlers properly use args parameter
     const handleNewNotification = (...args: unknown[]) => {
       const notification = args[0] as AdminNotification;
       console.log('📢 Real-time: New admin notification', notification);
       
-      // Add to notifications list
       setNotifications(prev => [notification, ...prev]);
       
       if (!notification.read) {
@@ -85,14 +84,12 @@ export function useAdminNotifications() {
         setHasNewNotification(true);
       }
       
-      // Update pagination total
       setPagination(prev => ({
         ...prev,
         total: prev.total + 1,
         pages: Math.ceil((prev.total + 1) / prev.limit)
       }));
       
-      // Show browser notification
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification(notification.title, {
           body: notification.message,
@@ -101,19 +98,23 @@ export function useAdminNotifications() {
       }
     };
     
-    const handleNotificationStatusChanged = (...args: unknown[]) => {
-      const data = args[0] as { notificationId: string; read: boolean };
-      console.log('📢 Real-time: Notification status changed', data);
+    const handleNotificationRead = (...args: unknown[]) => {
+      const data = args[0] as { notificationId: string };
+      console.log('📢 Real-time: Notification marked as read', data);
       
       setNotifications(prev => prev.map(n => 
-        n.id === data.notificationId ? { ...n, read: data.read } : n
+        n.id === data.notificationId ? { ...n, read: true } : n
       ));
       
-      if (data.read) {
-        setUnreadCount(prev => Math.max(0, prev - 1));
-      } else {
-        setUnreadCount(prev => prev + 1);
-      }
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    };
+    
+    const handleNotificationReadAll = (...args: unknown[]) => {
+      // args is used even if we don't need the data - log it to show usage
+      console.log('📢 Real-time: All notifications marked as read', args);
+      
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setUnreadCount(0);
     };
     
     const handleNotificationDeleted = (...args: unknown[]) => {
@@ -128,17 +129,52 @@ export function useAdminNotifications() {
       }));
     };
     
-    // Register listeners
-    adminSocket.on('admin:notification:new', handleNewNotification);
-    adminSocket.on('admin:notification:status', handleNotificationStatusChanged);
-    adminSocket.on('admin:notification:deleted', handleNotificationDeleted);
+    const handleNotificationsDeletedAll = (...args: unknown[]) => {
+      const data = args[0] as { count: number };
+      console.log('📢 Real-time: All notifications deleted', data);
+      
+      setNotifications([]);
+      setUnreadCount(0);
+      setPagination(prev => ({
+        ...prev,
+        total: 0,
+        pages: 0
+      }));
+    };
+    
+    const handleNotificationsDeletedRead = (...args: unknown[]) => {
+      const data = args[0] as { count: number };
+      console.log('📢 Real-time: Read notifications deleted', data);
+      
+      setNotifications(prev => prev.filter(n => !n.read));
+    };
+    
+    const handleNotificationCountRefresh = (...args: unknown[]) => {
+      // args is used even if we don't need the data - log it to show usage
+      console.log('📢 Real-time: Refresh notification count', args);
+      fetchUnreadCount();
+      fetchNotifications(currentFilters);
+    };
+    
+    // Register listeners with correct event names
+    adminSocket.on('notification:new', handleNewNotification);
+    adminSocket.on('notification:read', handleNotificationRead);
+    adminSocket.on('notification:read:all', handleNotificationReadAll);
+    adminSocket.on('notification:deleted', handleNotificationDeleted);
+    adminSocket.on('notification:deleted:all', handleNotificationsDeletedAll);
+    adminSocket.on('notification:deleted:read', handleNotificationsDeletedRead);
+    adminSocket.on('notification:count:refresh', handleNotificationCountRefresh);
     
     return () => {
-      adminSocket.off('admin:notification:new', handleNewNotification);
-      adminSocket.off('admin:notification:status', handleNotificationStatusChanged);
-      adminSocket.off('admin:notification:deleted', handleNotificationDeleted);
+      adminSocket.off('notification:new', handleNewNotification);
+      adminSocket.off('notification:read', handleNotificationRead);
+      adminSocket.off('notification:read:all', handleNotificationReadAll);
+      adminSocket.off('notification:deleted', handleNotificationDeleted);
+      adminSocket.off('notification:deleted:all', handleNotificationsDeletedAll);
+      adminSocket.off('notification:deleted:read', handleNotificationsDeletedRead);
+      adminSocket.off('notification:count:refresh', handleNotificationCountRefresh);
     };
-  }, []);
+  }, [currentFilters, fetchNotifications, fetchUnreadCount]);
 
   // Request notification permission on mount
   useEffect(() => {
@@ -151,7 +187,6 @@ export function useAdminNotifications() {
   const markAsRead = useCallback(async (notificationId: string) => {
     console.log('📥 markAsRead:', notificationId);
     
-    // Optimistic update
     setNotifications(prev => 
       prev.map(n => n.id === notificationId ? { ...n, read: true } : n)
     );

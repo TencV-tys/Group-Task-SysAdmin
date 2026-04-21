@@ -1,7 +1,8 @@
-// hooks/useAdminFeedback.ts - REMOVED filteredStats from refresh
+// hooks/useAdminFeedback.ts - Add version counter
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
+import { adminSocket, connectAdminSocket } from '../services/adminSocket';
 import type { 
   Feedback, 
   FeedbackFilters,  
@@ -12,251 +13,282 @@ import type {
 } from '../services/admin.feedback.service';
 
 export function useAdminFeedback() {
-  console.log('🏭 [useAdminFeedback] Hook initializing');
-  
   const [feedback, setFeedback] = useState<Feedback[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [globalStats, setGlobalStats] = useState<FeedbackStats | null>(null);
-  const [filteredStats, setFilteredStats] = useState<FeedbackStats | null>(null);
-  const [pagination, setPagination] = useState({
-    page: 1,
-    limit: 10,
-    total: 0,
-    pages: 0
-  });
+  const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, pages: 0 });
   const [actionLoading, setActionLoading] = useState(false);
+  const [hasNewFeedback, setHasNewFeedback] = useState(false);
+  const [filters, setFilters] = useState<FeedbackFilters>({ page: 1, limit: 10 });
+  // ADD THIS: Version counter to force re-renders
+  const [statsVersion, setStatsVersion] = useState(0);
 
   const isMountedRef = useRef(true);
+  const initialLoadDoneRef = useRef(false);
+  const isDeletingRef = useRef(false);
   const fetchCountRef = useRef(0);
-  const fetchInProgressRef = useRef(false);
+  const filtersRef = useRef(filters);
 
   useEffect(() => {
-    console.log('🟢 [useAdminFeedback] Hook mounted');
+    filtersRef.current = filters;
+  }, [filters]);
+
+  useEffect(() => {
     isMountedRef.current = true;
-    return () => {
-      console.log('🔴 [useAdminFeedback] Hook unmounted');
-      isMountedRef.current = false;
-    };
+    connectAdminSocket().catch(console.error);
+    return () => { isMountedRef.current = false; };
   }, []);
 
-  // ===== FETCH FEEDBACK =====
-  const fetchFeedback = useCallback(async (filters?: FeedbackFilters) => {
+  const buildApiFilters = useCallback((customFilters?: FeedbackFilters): FeedbackFilters => {
+    const currentFilters = customFilters || filters;
+    return {
+      page: currentFilters.page || 1,
+      limit: currentFilters.limit || 10,
+      status: currentFilters.status,
+      search: currentFilters.search,
+      type: currentFilters.type,
+      sortBy: currentFilters.sortBy,
+      sortOrder: currentFilters.sortOrder,
+    };
+  }, [filters]);
+
+  const fetchFeedback = useCallback(async (filterParams?: FeedbackFilters) => {
     const fetchId = ++fetchCountRef.current;
-    console.log(`📤 [useAdminFeedback:${fetchId}] fetchFeedback called with filters:`, filters);
+    console.log(`📤 [fetchFeedback:${fetchId}] called`);
     
-    if (fetchInProgressRef.current) {
-      console.log(`⏭️ [useAdminFeedback:${fetchId}] Skipping - fetch already in progress`);
-      return { success: false, message: 'Fetch already in progress' };
-    }
-    
+    if (!isMountedRef.current) return { success: false, message: 'Unmounted' };
+
     setLoading(true);
     setError(null);
-    fetchInProgressRef.current = true;
-    
+
+    const finalFilters = buildApiFilters(filterParams);
+    console.log(`📤 [fetchFeedback:${fetchId}] finalFilters:`, finalFilters);
+
     try {
-      const result = await AdminFeedbackService.getFeedback(filters);
-      console.log(`📦 [useAdminFeedback:${fetchId}] getFeedback response:`, {
-        success: result.success,
-        feedbackCount: result.data?.feedback?.length,
-        pagination: result.data?.pagination,
-        message: result.message
-      });
-      
-      if (result.success && result.data && isMountedRef.current) {
-        setFeedback(result.data.feedback || []);
-        setPagination({
-          page: result.data.pagination.page,
-          limit: result.data.pagination.limit,
-          total: result.data.pagination.total,
-          pages: result.data.pagination.pages
-        });
-        console.log(`✅ [useAdminFeedback:${fetchId}] Feedback updated`);
-        return { success: true, data: result.data };
-      } else if (isMountedRef.current) {
-        console.error(`❌ [useAdminFeedback:${fetchId}] Failed to fetch feedback:`, result.message);
-        setError(result.message || 'Failed to load feedback');
-        return { success: false, message: result.message };
+      const result = await AdminFeedbackService.getFeedback(finalFilters);
+
+      if (isMountedRef.current) {
+        if (result.success && result.data) {
+          console.log(`✅ [fetchFeedback:${fetchId}] Setting feedback count:`, result.data.feedback?.length);
+          setFeedback(result.data.feedback || []);
+          setPagination({
+            page: result.data.pagination.page,
+            limit: result.data.pagination.limit,
+            total: result.data.pagination.total,
+            pages: result.data.pagination.pages
+          });
+          setHasNewFeedback(false);
+          return { success: true, data: result.data };
+        } else {
+          setError(result.message || 'Failed to load feedback');
+          return { success: false, message: result.message };
+        }
       }
     } catch (err) {
-      if (!isMountedRef.current) return { success: false, message: 'Component unmounted' };
-      
-      const errorMessage = err instanceof Error ? err.message : 'Network error';
-      console.error(`❌ [useAdminFeedback:${fetchId}] Exception:`, errorMessage, err);
-      setError(errorMessage);
-      return { success: false, message: errorMessage };
+      console.error(`❌ [fetchFeedback:${fetchId}] ERROR:`, err);
+      if (isMountedRef.current) {
+        const errorMessage = err instanceof Error ? err.message : 'Network error';
+        setError(errorMessage);
+        return { success: false, message: errorMessage };
+      }
     } finally {
       if (isMountedRef.current) {
         setLoading(false);
-        fetchInProgressRef.current = false;
-        console.log(`🏁 [useAdminFeedback:${fetchId}] fetchFeedback completed`);
       }
     }
     
     return { success: false, message: 'Unknown error' };
-  }, []);
+  }, [buildApiFilters]);
 
-  // ===== FETCH GLOBAL STATISTICS =====
-  const fetchGlobalStats = useCallback(async (force: boolean = false) => {
-    console.log('📊 [useAdminFeedback] fetchGlobalStats called', force ? '(forced)' : '');
-    
+  const fetchGlobalStats = useCallback(async () => {
+    console.log('📊 [fetchGlobalStats] called');
     try {
       const result = await AdminFeedbackService.getFeedbackStats();
-      console.log('📦 [useAdminFeedback] getFeedbackStats response:', {
-        success: result.success,
-        hasStats: !!result.data,
-        message: result.message
-      });
+      console.log('📊 [fetchGlobalStats] result from API:', result);
       
       if (result.success && result.data && isMountedRef.current) {
-        setGlobalStats(result.data);
-        console.log('✅ [useAdminFeedback] Global statistics updated:', result.data);
-        return { success: true, data: result.data };
-      } else if (isMountedRef.current) {
-        console.error('❌ [useAdminFeedback] Failed to fetch global stats:', result.message);
-        return { success: false, message: result.message };
+        console.log('✅ [fetchGlobalStats] Setting globalStats to NEW object:', result.data);
+        // Create a brand new object with spread operator
+        const newStats = { ...result.data };
+        setGlobalStats(newStats);
+        // INCREMENT VERSION COUNTER to force re-render
+        setStatsVersion(prev => prev + 1);
+        return { success: true, data: newStats };
       }
+      return { success: false, message: result.message };
     } catch (err) {
-      console.error('❌ [useAdminFeedback] Exception in fetchGlobalStats:', err);
+      console.error('❌ [fetchGlobalStats] ERROR:', err);
       return { success: false, message: 'Failed to fetch global stats' };
     }
-    
-    return { success: false, message: 'Unknown error' };
   }, []);
 
-  // ===== FETCH FILTERED STATISTICS (only used for modal or other specific cases) =====
-  const fetchFilteredStats = useCallback(async (filters?: { status?: string, type?: string, search?: string }) => {
-    console.log('📊 [useAdminFeedback] fetchFilteredStats called with filters:', filters);
-    
-    try {
-      const result = await AdminFeedbackService.getFilteredFeedbackStats(filters);
-      console.log('📦 [useAdminFeedback] getFilteredFeedbackStats response:', {
-        success: result.success,
-        hasStats: !!result.data,
-        message: result.message
-      });
-      
-      if (result.success && result.data && isMountedRef.current) {
-        setFilteredStats(result.data);
-        console.log('✅ [useAdminFeedback] Filtered statistics updated:', result.data);
-        return { success: true, data: result.data };
-      } else if (isMountedRef.current) {
-        setFilteredStats({
-          total: 0,
-          open: 0,
-          inProgress: 0,
-          resolved: 0,
-          closed: 0,
-          byType: {}
-        });
-        return { success: false, message: result.message };
-      }
-    } catch (err) {
-      console.error('❌ [useAdminFeedback] Exception in fetchFilteredStats:', err);
-      if (isMountedRef.current) {
-        setFilteredStats({
-          total: 0,
-          open: 0,
-          inProgress: 0,
-          resolved: 0,
-          closed: 0,
-          byType: {}
-        });
-      }
-      return { success: false, message: 'Failed to fetch filtered stats' };
-    }
-    
-    return { success: false, message: 'Unknown error' };
-  }, []);
-
-  // ===== GET FEEDBACK DETAILS =====
   const getFeedbackDetails = useCallback(async (feedbackId: string): Promise<FeedbackDetailsResponse> => {
-    console.log('🔎 [useAdminFeedback] getFeedbackDetails called for:', feedbackId);
-    
+    console.log('🔍 [getFeedbackDetails] called for:', feedbackId);
     try {
-      const result = await AdminFeedbackService.getFeedbackById(feedbackId);
-      return result;
+      return await AdminFeedbackService.getFeedbackById(feedbackId);
     } catch (err) {
-      console.error('❌ [useAdminFeedback] Exception in getFeedbackDetails:', err);
+      console.error('❌ [getFeedbackDetails] ERROR:', err);
       return { success: false, message: 'Failed to fetch feedback details' };
     }
   }, []);
 
-  // ===== UPDATE STATUS =====
   const updateStatus = useCallback(async (feedbackId: string, status: string): Promise<UpdateStatusResponse> => {
-    console.log(`🎬 [useAdminFeedback] updateStatus called:`, { feedbackId, status });
+    console.log('🔄 [updateStatus] called:', { feedbackId, status });
     setActionLoading(true);
-    
     try {
       const result = await AdminFeedbackService.updateFeedbackStatus(feedbackId, status);
-      
+      console.log('🔄 [updateStatus] result:', result);
       if (result.success && isMountedRef.current) {
-        console.log(`✅ [useAdminFeedback] Status updated successfully`);
-        await fetchGlobalStats(true);
+        console.log('🔄 [updateStatus] Refreshing stats and feedback...');
+        await fetchGlobalStats();
+        await fetchFeedback(filtersRef.current);
+        setStatsVersion(prev => prev + 1);
       }
       return result;
     } catch (err) {
-      console.error(`❌ [useAdminFeedback] Exception in updateStatus:`, err);
+      console.error('❌ [updateStatus] ERROR:', err);
       return { success: false, message: 'Failed to update status' };
     } finally {
-      if (isMountedRef.current) {
-        setActionLoading(false);
-      }
+      if (isMountedRef.current) setActionLoading(false);
     }
-  }, [fetchGlobalStats]);
+  }, [fetchGlobalStats, fetchFeedback]);
 
-  // ===== DELETE FEEDBACK =====
   const deleteFeedback = useCallback(async (feedbackId: string): Promise<DeleteResponse> => {
-    console.log(`🗑️ [useAdminFeedback] deleteFeedback called:`, feedbackId);
+    console.log('🗑️ [deleteFeedback] called:', feedbackId);
+    if (isDeletingRef.current) {
+      console.log('⏭️ Delete already in progress, skipping');
+      return { success: false, message: 'Delete already in progress' };
+    }
+    
+    isDeletingRef.current = true;
     setActionLoading(true);
     
     try {
       const result = await AdminFeedbackService.deleteFeedback(feedbackId);
-      
       if (result.success && isMountedRef.current) {
-        console.log(`✅ [useAdminFeedback] Delete successful`);
-        await fetchGlobalStats(true);
+        console.log('🗑️ [deleteFeedback] Refreshing stats and feedback...');
+        await Promise.all([
+          fetchGlobalStats(),
+          fetchFeedback(filtersRef.current)
+        ]);
+        setStatsVersion(prev => prev + 1);
       }
       return result;
     } catch (err) {
-      console.error(`❌ [useAdminFeedback] Exception in deleteFeedback:`, err);
+      console.error('❌ [deleteFeedback] ERROR:', err);
       return { success: false, message: 'Failed to delete feedback' };
     } finally {
-      if (isMountedRef.current) {
-        setActionLoading(false);
-      }
+      if (isMountedRef.current) setActionLoading(false);
+      isDeletingRef.current = false;
     }
-  }, [fetchGlobalStats]);
+  }, [fetchGlobalStats, fetchFeedback]);
 
-  // ===== REFRESH =====
-  const refreshFeedback = useCallback(async (filters?: FeedbackFilters) => {
-    console.log('🔄 [useAdminFeedback] Manual refresh triggered');
+  const updateFilters = useCallback((newFilters: FeedbackFilters) => {
+    console.log('🔵 [updateFilters] called:', newFilters);
+    const mergedFilters = { ...filters, ...newFilters };
+    console.log('🔵 [updateFilters] mergedFilters:', mergedFilters);
+    setFilters(mergedFilters);
+    fetchFeedback(mergedFilters);
+    fetchGlobalStats();
+  }, [filters, fetchFeedback, fetchGlobalStats]);
+
+  const refreshFeedback = useCallback(async () => {
+    console.log('🔄 [refreshFeedback] called');
+    await Promise.all([fetchFeedback(filtersRef.current), fetchGlobalStats()]);
+    setStatsVersion(prev => prev + 1);
+  }, [fetchFeedback, fetchGlobalStats]);
+
+  // Socket listeners
+  useEffect(() => {
+    console.log('🔌🔌🔌 Setting up socket listeners... 🔌🔌🔌');
     
-    try {
-      await Promise.all([
-        fetchFeedback(filters),
-        fetchGlobalStats(true)
-      ]);
-      console.log('✅ [useAdminFeedback] Refresh completed');
-    } catch (err) {
-      console.error('❌ [useAdminFeedback] Refresh failed:', err);
+    const handleFeedbackStatus = (data: any) => {
+      console.log('🎯🎯🎯 [SOCKET] feedback:status RECEIVED! 🎯🎯🎯');
+      console.log('📦 Socket data:', data);
+      
+      if (!isMountedRef.current) return;
+      
+      setFeedback(prev => prev.map(f => 
+        f.id === data.feedbackId ? { ...f, status: data.newStatus } : f
+      ));
+      
+      fetchGlobalStats();
+      fetchFeedback(filtersRef.current);
+      setStatsVersion(prev => prev + 1);
+    };
+    
+    const handleFeedbackNew = (data: any) => {
+      console.log('🎯🎯🎯 [SOCKET] feedback:new RECEIVED! 🎯🎯🎯');
+      if (!isMountedRef.current) return;
+      setHasNewFeedback(true);
+      fetchGlobalStats();
+      fetchFeedback(filtersRef.current);
+      setStatsVersion(prev => prev + 1);
+    };
+    
+    const handleFeedbackDeleted = (data: any) => {
+      console.log('🎯🎯🎯 [SOCKET] feedback:deleted RECEIVED! 🎯🎯🎯');
+      if (!isMountedRef.current) return;
+      setFeedback(prev => prev.filter(f => f.id !== data.feedbackId));
+      fetchGlobalStats();
+      fetchFeedback(filtersRef.current);
+      setStatsVersion(prev => prev + 1);
+    };
+    
+    const handleFeedbackUpdated = (data: any) => {
+      console.log('🎯🎯🎯 [SOCKET] feedback:updated RECEIVED! 🎯🎯🎯');
+      if (!isMountedRef.current) return;
+      fetchGlobalStats();
+      fetchFeedback(filtersRef.current);
+      setStatsVersion(prev => prev + 1);
+    };
+    
+    adminSocket.on('feedback:status', handleFeedbackStatus);
+    adminSocket.on('feedback:new', handleFeedbackNew);
+    adminSocket.on('feedback:user:created', handleFeedbackNew);
+    adminSocket.on('feedback:deleted', handleFeedbackDeleted);
+    adminSocket.on('feedback:updated', handleFeedbackUpdated);
+    adminSocket.on('feedback:user:updated', handleFeedbackUpdated);
+    
+    console.log('✅ Socket listeners registered successfully');
+    
+    return () => {
+      adminSocket.off('feedback:status', handleFeedbackStatus);
+      adminSocket.off('feedback:new', handleFeedbackNew);
+      adminSocket.off('feedback:user:created', handleFeedbackNew);
+      adminSocket.off('feedback:deleted', handleFeedbackDeleted);
+      adminSocket.off('feedback:updated', handleFeedbackUpdated);
+      adminSocket.off('feedback:user:updated', handleFeedbackUpdated);
+    };
+  }, [fetchGlobalStats, fetchFeedback]);
+
+  // Initial load
+  useEffect(() => {
+    if (!initialLoadDoneRef.current) {
+      console.log('🚀 Initial load starting...');
+      initialLoadDoneRef.current = true;
+      fetchFeedback({ page: 1, limit: 10 });
+      fetchGlobalStats();
     }
   }, [fetchFeedback, fetchGlobalStats]);
 
   return {
     feedback,
     loading,
-    error, 
+    error,
     globalStats,
-    filteredStats,
     pagination,
     actionLoading,
+    hasNewFeedback,
+    currentFilters: filters,
+    statsVersion, // ADD THIS to return
     fetchFeedback,
     fetchGlobalStats,
-    fetchFilteredStats,
     getFeedbackDetails,
     updateStatus,
     deleteFeedback,
     refreshFeedback,
+    updateFilters,
   };
 }

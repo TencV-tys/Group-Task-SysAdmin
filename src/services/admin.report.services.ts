@@ -1,5 +1,5 @@
 // services/admin.reports.service.ts
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL;
 
 export interface Report {
   id: string;
@@ -30,6 +30,24 @@ export interface Report {
     fullName: string;
     email: string;
   } | null;
+}
+
+export interface BulkDeleteResult {
+  totalCount: number;
+  successCount: number;
+  failedIds: string[];
+  deletedReports: Array<{
+    id: string;
+    status: string;
+    deletedAt: string;
+    deletedBy: string;
+  }>;
+}
+
+export interface BulkDeleteResponse {
+  success: boolean;
+  message: string;
+  results?: BulkDeleteResult;
 }
 
 export interface ReportFilters {
@@ -220,6 +238,59 @@ class AdminReportsServiceClass {
       };
     }
   }
+
+static async deleteReport(reportId: string, hardDelete: boolean = false): Promise<{ success: boolean; message: string }> {
+  try {
+    console.log('🗑️ Deleting report:', reportId, 'hardDelete:', hardDelete);
+    
+    const response = await fetch(`${API_URL}/api/admin/reports/${reportId}?hardDelete=${hardDelete}`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: await this.getHeaders()
+    });
+
+    const result = await response.json();
+    console.log('📦 Delete report response:', result);
+    
+    return result;
+
+  } catch (error) {
+    console.error('❌ Error deleting report:', error);
+    return {
+      success: false,
+      message: 'Failed to delete report'
+    };
+  }
+}
+
+// Then update the bulkDeleteReports method:
+
+// ========== BULK DELETE REPORTS ==========
+static async bulkDeleteReports(reportIds: string[], hardDelete: boolean = false): Promise<BulkDeleteResponse> {
+  try {
+    console.log('🗑️ Bulk deleting reports:', reportIds.length, 'hardDelete:', hardDelete);
+    
+    const response = await fetch(`${API_URL}/api/admin/reports/bulk-delete`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: await this.getHeaders(true),
+      body: JSON.stringify({ reportIds, hardDelete })
+    });
+
+    const result = await response.json();
+    console.log('📦 Bulk delete response:', result);
+    
+    return result;
+
+  } catch (error) {
+    console.error('❌ Error bulk deleting reports:', error);
+    return {
+      success: false,
+      message: 'Failed to bulk delete reports'
+    };
+  }
+}
+
 }
 
 export const AdminReportsService = AdminReportsServiceClass;

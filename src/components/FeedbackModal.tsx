@@ -1,6 +1,8 @@
-// components/FeedbackModal.tsx - COMPLETE FIXED
-import React, { useState} from 'react';
+// components/FeedbackModal.tsx - WITH DELETE BUTTON (only for CLOSED status)
+
+import React, { useState } from 'react';
 import type { FeedbackDetails } from '../services/admin.feedback.service';
+import { AdminFeedbackService } from '../services/admin.feedback.service';
 import './styles/FeedbackModal.css';
 
 interface FeedbackModalProps {
@@ -10,26 +12,29 @@ interface FeedbackModalProps {
   loading?: boolean;
   onUpdateStatus: (status: string) => Promise<void>;
   nextStatusOptions?: string[];
+  onDelete?: (feedbackId: string) => Promise<void>; // Add delete callback
 }
 
 const FeedbackModal: React.FC<FeedbackModalProps> = ({
   isOpen,
   onClose,
-  feedback, 
+  feedback,
   loading,
   onUpdateStatus,
-  nextStatusOptions = []
+  nextStatusOptions = [],
+  onDelete
 }) => {
   const [showStatusForm, setShowStatusForm] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   
-   React.useEffect(() => {
-    // This runs once on mount and when feedback.id changes
+  React.useEffect(() => {
     setShowStatusForm(false);
     setSelectedStatus('');
-  }, [feedback?.id]); // This is fine - the warning is overly cautious
-
+    setShowDeleteConfirm(false);
+  }, [feedback?.id]);
 
   if (!isOpen || !feedback) return null;
 
@@ -79,6 +84,27 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
     setSelectedStatus('');
   };
 
+  const handleDelete = async () => {
+    if (!feedback) return;
+    
+    setDeleting(true);
+    try {
+      if (onDelete) {
+        await onDelete(feedback.id);
+      } else {
+        const result = await AdminFeedbackService.deleteFeedback(feedback.id);
+        if (result.success && onClose) {
+          onClose();
+        }
+      }
+      setShowDeleteConfirm(false);
+    } catch (error) {
+      console.error('Delete error:', error);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   // Filter out the current status from options
   const availableOptions = nextStatusOptions.filter(
     status => status !== feedback.status
@@ -93,6 +119,9 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
       parent.appendChild(span);
     }
   };
+
+  // Check if delete button should be shown (only when status is CLOSED)
+  const canDelete = feedback.status === 'CLOSED';
 
   if (loading) {
     return (
@@ -178,6 +207,22 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
             >
               Update Status
             </button>
+            
+            {/* ✅ DELETE BUTTON - ONLY SHOW WHEN STATUS IS CLOSED */}
+            {canDelete && (
+              <button
+                className="feedback-modal-btn feedback-modal-btn-delete"
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={deleting}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <line x1="10" y1="11" x2="10" y2="17" />
+                  <line x1="14" y1="11" x2="14" y2="17" />
+                </svg>
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            )}
           </div>
 
           {/* Status Update Form */}
@@ -205,17 +250,43 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
               )}
               <div className="feedback-modal-form-actions">
                 <button
-                  className="feedback-modal-btn feedback-modal-btn-cancel"
+                  className="feedback-modal-btn-cancel"
                   onClick={() => setShowStatusForm(false)}
                 >
                   Cancel
                 </button>
                 <button
-                  className="feedback-modal-btn feedback-modal-btn-save"
+                  className="feedback-modal-btn-save"
                   onClick={handleStatusUpdate}
                   disabled={!selectedStatus || updating}
                 >
                   {updating ? 'Updating...' : 'Update'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Delete Confirmation */}
+          {showDeleteConfirm && (
+            <div className="feedback-modal-delete-confirm">
+              <p>Are you sure you want to delete this feedback?</p>
+              <div className="delete-preview">
+                <strong>"{feedback.message.substring(0, 100)}..."</strong>
+              </div>
+              <p className="delete-warning">⚠️ This action cannot be undone!</p>
+              <div className="delete-confirm-actions">
+                <button
+                  className="feedback-modal-btn-cancel"
+                  onClick={() => setShowDeleteConfirm(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="feedback-modal-btn-delete-confirm"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                >
+                  {deleting ? 'Deleting...' : 'Yes, Delete'}
                 </button>
               </div>
             </div>
@@ -230,7 +301,7 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
         </div>
       </div>
     </div>
-  );
+  );  
 };
 
 export default FeedbackModal;

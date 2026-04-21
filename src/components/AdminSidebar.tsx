@@ -1,4 +1,4 @@
-// layouts/AdminSidebar.tsx - CLEANED UP (removed unused socketConnected)
+// layouts/AdminSidebar.tsx - FULLY UPDATED WITH ALL NOTIFICATION EVENTS
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -37,7 +37,6 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   const [feedbackCount, setFeedbackCount] = useState<number>(0);
   const [notificationCount, setNotificationCount] = useState<number>(0);
   const [reportCount, setReportCount] = useState<number>(0);
-  // ✅ Removed unused socketConnected state
   
   const isMountedRef = useRef(true);
   const listenersInitializedRef = useRef(false);
@@ -109,7 +108,6 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   const setupSocketListeners = useCallback(() => {
     if (listenersInitializedRef.current) return;
     
-    // Check if socket is connected
     if (!adminSocket.isConnected) {
       console.log('⏳ [SIDEBAR] Socket not connected yet, will retry...');
       return;
@@ -119,7 +117,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     
     console.log('✅ [SIDEBAR] Socket connected, setting up listeners');
     
-    // Type-safe event handlers
+    // Feedback event handlers
     const handleFeedbackStatus = () => {
       console.log('📢 [SIDEBAR] Real-time feedback update');
       refreshFeedbackCount();
@@ -130,9 +128,10 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       refreshFeedbackCount();
     };
     
+    // Notification event handlers
     const handleNotificationNew = () => {
       console.log('📢 [SIDEBAR] New notification received');
-      setNotificationCount(prev => prev + 1);
+      refreshNotificationCount();
     };
     
     const handleNotificationRead = () => {
@@ -140,6 +139,32 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       refreshNotificationCount();
     };
     
+    const handleNotificationReadAll = () => {
+      console.log('📢 [SIDEBAR] All notifications marked as read');
+      refreshNotificationCount();
+    };
+    
+    const handleNotificationDeleted = () => {
+      console.log('📢 [SIDEBAR] Notification deleted');
+      refreshNotificationCount();
+    };
+    
+    const handleNotificationsDeletedAll = () => {
+      console.log('📢 [SIDEBAR] All notifications deleted');
+      refreshNotificationCount();
+    };
+    
+    const handleNotificationsDeletedRead = () => {
+      console.log('📢 [SIDEBAR] Read notifications deleted');
+      refreshNotificationCount();
+    };
+    
+    const handleNotificationCountRefresh = () => {
+      console.log('📢 [SIDEBAR] Notification count refresh requested');
+      refreshNotificationCount();
+    };
+    
+    // Report event handlers
     const handleReportStatus = () => {
       console.log('📢 [SIDEBAR] Report status changed');
       refreshReportCount();
@@ -155,16 +180,26 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       refreshReportCount();
     };
     
-    // Register listeners
+    // Register all listeners
+    // Feedback events
     adminSocket.on('feedback:status', handleFeedbackStatus);
     adminSocket.on('feedback:deleted', handleFeedbackDeleted);
+    
+    // Notification events
     adminSocket.on('notification:new', handleNotificationNew);
     adminSocket.on('notification:read', handleNotificationRead);
+    adminSocket.on('notification:read:all', handleNotificationReadAll);
+    adminSocket.on('notification:deleted', handleNotificationDeleted);
+    adminSocket.on('notification:deleted:all', handleNotificationsDeletedAll);
+    adminSocket.on('notification:deleted:read', handleNotificationsDeletedRead);
+    adminSocket.on('notification:count:refresh', handleNotificationCountRefresh);
+    
+    // Report events
     adminSocket.on('report:status', handleReportStatus);
     adminSocket.on('report:deleted', handleReportDeleted);
     adminSocket.on('reports:bulk-updated', handleBulkReports);
     
-    console.log('✅ [SIDEBAR] Socket listeners initialized');
+    console.log('✅ [SIDEBAR] All socket listeners initialized');
   }, [refreshFeedbackCount, refreshNotificationCount, refreshReportCount]);
 
   // ========== CONNECT SOCKET AND SETUP LISTENERS ==========
@@ -174,16 +209,13 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     
     const connectAndSetup = async () => {
       try {
-        // Try to connect socket
         await connectAdminSocket();
         
-        // Wait a bit for connection to establish
         setTimeout(() => {
           if (adminSocket.isConnected) {
             setupSocketListeners();
           } else {
             console.log('⏳ [SIDEBAR] Socket still not connected after connection attempt');
-            // Retry logic
             if (retryCountRef.current < maxRetries) {
               retryCountRef.current++;
               setTimeout(connectAndSetup, 2000);
@@ -208,6 +240,11 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       adminSocket.off('feedback:deleted');
       adminSocket.off('notification:new');
       adminSocket.off('notification:read');
+      adminSocket.off('notification:read:all');
+      adminSocket.off('notification:deleted');
+      adminSocket.off('notification:deleted:all');
+      adminSocket.off('notification:deleted:read');
+      adminSocket.off('notification:count:refresh');
       adminSocket.off('report:status');
       adminSocket.off('report:deleted');
       adminSocket.off('reports:bulk-updated');

@@ -21,6 +21,101 @@
   flex-wrap: wrap;
   gap: 20px;
 }
+/* Action buttons container */
+.feedback-action-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Delete Button */
+.feedback-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #dc2626;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.feedback-delete-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.feedback-delete-btn:hover:not(:disabled) {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: white;
+  transform: translateY(-1px);
+}
+
+.feedback-delete-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Delete Confirmation Modal */
+.delete-confirm-modal {
+  max-width: 450px;
+}
+
+.delete-feedback-preview {
+  background: #f8f9fa;
+  padding: 12px;
+  border-radius: 8px;
+  margin: 16px 0;
+  font-size: 14px;
+  color: #495057;
+  border-left: 3px solid #dc2626;
+}
+
+.delete-warning {
+  color: #dc2626;
+  font-size: 13px;
+  margin: 12px 0 0 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.feedback-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid #e9ecef;
+  background: #f8f9fa;
+  border-radius: 0 0 20px 20px;
+}
+
+.feedback-modal-btn-delete {
+  padding: 10px 20px;
+  background: #dc2626;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.feedback-modal-btn-delete:hover:not(:disabled) {
+  background: #b91c1c;
+  transform: translateY(-1px);
+}
+
+.feedback-modal-btn-delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .feedback-header-left h1 {
   font-size: 28px;

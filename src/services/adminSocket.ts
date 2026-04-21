@@ -3,7 +3,7 @@
 import { io, Socket } from 'socket.io-client';
 import { getAdminAccessToken } from './admin.auth.service';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL;
 
 // Define a proper callback type
 type EventCallback = (...args: unknown[]) => void;

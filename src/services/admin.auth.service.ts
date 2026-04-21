@@ -1,6 +1,6 @@
 // services/admin.auth.service.ts - FIXED to store token
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL;
 
 export interface AdminLoginCredentials {
   email: string;
