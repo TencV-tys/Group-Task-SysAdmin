@@ -42,7 +42,7 @@ const Notifications = () => {
   const pendingToastRef = useRef<{ id: string; title: string; message: string } | null>(null);
 
   // ✅ FIXED: Use a ref to store pending toast and update in a separate useEffect
-  useEffect(() => {
+  useEffect(() => { 
     if (hasNewNotification && !loading && notifications.length > 0 && filter === 'all') {
       const newest = notifications[0];
       

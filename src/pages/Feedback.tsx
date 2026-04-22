@@ -1,4 +1,4 @@
-// pages/Feedback.tsx - COMPLETE REWRITE OF STATS SECTION
+// pages/Feedback.tsx - COMPLETE REAL-TIME VERSION
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAdminFeedback } from '../hooks/useAdminFeedback';
@@ -7,6 +7,7 @@ import LoadingScreen from '../components/LoadingScreen';
 import type { Feedback, FeedbackDetails } from '../services/admin.feedback.service';
 import './styles/Feedback.css';
 
+// ─── DeleteConfirmationModal ──────────────────────────────────────────────────
 const DeleteConfirmationModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -15,8 +16,7 @@ const DeleteConfirmationModal: React.FC<{
   deleting: boolean;
 }> = ({ isOpen, onClose, onConfirm, feedbackTitle, deleting }) => {
   if (!isOpen) return null;
-  
-  return ( 
+  return (
     <div className="feedback-modal-overlay" onClick={onClose}>
       <div className="feedback-modal delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
         <div className="feedback-modal-header">
@@ -30,9 +30,7 @@ const DeleteConfirmationModal: React.FC<{
         </div>
         <div className="feedback-modal-body">
           <p>Are you sure you want to delete this feedback?</p>
-          <div className="delete-feedback-preview">
-            <strong>{feedbackTitle}</strong>
-          </div>
+          <div className="delete-feedback-preview"><strong>{feedbackTitle}</strong></div>
           <p className="delete-warning">⚠️ This action cannot be undone.</p>
         </div>
         <div className="feedback-modal-footer">
@@ -46,30 +44,26 @@ const DeleteConfirmationModal: React.FC<{
   );
 };
 
-// Separate StatsCard component to ensure re-renders
+// ─── StatsCard ────────────────────────────────────────────────────────────────
 const StatsCard: React.FC<{
   label: string;
   value: number;
   status: string;
   isActive: boolean;
   onClick: () => void;
-}> = React.memo(({ label, value, status, isActive, onClick }) => {
-  console.log(`📊 [StatsCard] Rendering ${label}: ${value}, isActive: ${isActive}`);
-  return (
-    <div 
-      className={`feedback-stat-card ${status.toLowerCase()} ${isActive ? 'active' : ''}`} 
-      onClick={onClick}
-      style={{ cursor: 'pointer' }}
-    >
-      <span className="feedback-stat-value">{value}</span>
-      <span className="feedback-stat-label">{label}</span>
-    </div>
-  );
-});
+}> = React.memo(({ label, value, status, isActive, onClick }) => (
+  <div
+    className={`feedback-stat-card ${status.toLowerCase()} ${isActive ? 'active' : ''}`}
+    onClick={onClick}
+    style={{ cursor: 'pointer' }}
+  >
+    <span className="feedback-stat-value">{value}</span>
+    <span className="feedback-stat-label">{label}</span>
+  </div>
+));
 
+// ─── Feedback Page ────────────────────────────────────────────────────────────
 const Feedback: React.FC = () => {
-  console.log('🏁 [Feedback] Component rendering');
-  
   const {
     feedback,
     loading,
@@ -83,88 +77,79 @@ const Feedback: React.FC = () => {
     deleteFeedback,
     updateFilters,
     currentFilters,
+    refreshFeedback,
+    statsUpdateTrigger, // ✅ ADDED
   } = useAdminFeedback();
 
-  // Local UI state
+  // ✅ FORCE RE-RENDER STATE
+  const [forceRender, setForceRender] = useState(0);
+
   const [searchInput, setSearchInput] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [refreshing, setRefreshing] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ id: string; title: string; message: string } | null>(null);
-  
+
   const [selectedFeedback, setSelectedFeedback] = useState<FeedbackDetails | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
-  
-  // Delete state
+
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [feedbackToDelete, setFeedbackToDelete] = useState<Feedback | null>(null);
   const [deleting, setDeleting] = useState(false);
-  
-  // Force re-render counter
-  const [renderKey, setRenderKey] = useState(0);
 
-  const toastTimeoutRef = useRef<number | undefined>(undefined);
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const isMountedRef = useRef(true);
+
+  // ✅ Force re-render when statsUpdateTrigger changes
+  useEffect(() => {
+    console.log(`🔄 [Feedback] statsUpdateTrigger changed to ${statsUpdateTrigger}, forcing re-render`);
+    setForceRender(prev => prev + 1);
+  }, [statsUpdateTrigger]);
 
   useEffect(() => {
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
   }, []);
 
-  // Force re-render when globalStats changes
   useEffect(() => {
-    console.log('🟢 [Feedback] globalStats CHANGED, forcing re-render');
-    console.log('🟢 New stats:', globalStats);
-    setRenderKey(prev => prev + 1);
-  }, [globalStats]);
-
-  // Show toast when hasNewFeedback changes
-  useEffect(() => {
-    if (hasNewFeedback) {
-      setToastMessage({
-        id: Date.now().toString(),
-        title: '📢 New Feedback',
-        message: 'New feedback has been submitted!'
-      });
-      
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-      toastTimeoutRef.current = setTimeout(() => {
-        setToastMessage(null);
-      }, 5000);
-    }
+    if (hasNewFeedback) showToast('📢 New Feedback', 'New feedback has been submitted!', 5000);
   }, [hasNewFeedback]);
 
+  // ─── Toast ───────────────────────────────────────────────────────────────
+  const showToast = (title: string, message: string, duration = 3000) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToastMessage({ id: Date.now().toString(), title, message });
+    toastTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current) setToastMessage(null);
+    }, duration);
+  };
+
+  // ─── Shared delete logic ─────────────────────────────────────────────────
+  const handleDeleteById = async (feedbackId: string): Promise<void> => {
+    const result = await deleteFeedback(feedbackId);
+    if (result.success) {
+      if (selectedFeedback?.id === feedbackId) {
+        setShowModal(false);
+        setSelectedFeedback(null);
+      }
+      showToast('✅ Feedback Deleted', 'Feedback has been deleted successfully');
+    } else {
+      showToast('❌ Delete Failed', result.message || 'Could not delete feedback');
+    }
+  };
+
+  // ─── Filters ─────────────────────────────────────────────────────────────
   const handleStatClick = (status: string) => {
-    console.log('📊 Stat card clicked:', status);
     setStatusFilter(status);
-    updateFilters({ 
-      page: 1, 
-      limit: 10, 
-      status: status || undefined,
-      search: searchInput || undefined
-    });
+    updateFilters({ page: 1, limit: 10, status: status || undefined, search: searchInput || undefined });
   };
 
-  const handleSearch = () => {
-    console.log('🔍 Search triggered:', searchInput);
-    updateFilters({ 
-      page: 1, 
-      limit: 10, 
-      status: statusFilter || undefined,
-      search: searchInput || undefined
-    });
-  };
+  const handleSearch = () =>
+    updateFilters({ page: 1, limit: 10, status: statusFilter || undefined, search: searchInput || undefined });
 
-  const handlePageChange = (newPage: number) => {
-    console.log('📄 Page changed:', newPage);
-    updateFilters({ 
-      page: newPage, 
-      limit: 10, 
-      status: statusFilter || undefined,
-      search: searchInput || undefined
-    });
-  };
+  const handlePageChange = (newPage: number) =>
+    updateFilters({ page: newPage, limit: 10, status: statusFilter || undefined, search: searchInput || undefined });
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleSearch();
@@ -172,12 +157,7 @@ const Feedback: React.FC = () => {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    updateFilters({
-      page: currentFilters?.page || 1,
-      limit: 10,
-      status: statusFilter || undefined,
-      search: searchInput || undefined
-    });
+    await refreshFeedback();
     setTimeout(() => setRefreshing(false), 500);
   };
 
@@ -187,12 +167,11 @@ const Feedback: React.FC = () => {
     updateFilters({ page: 1, limit: 10, status: undefined, search: undefined });
   };
 
+  // ─── View / Modal ─────────────────────────────────────────────────────────
   const handleViewFeedback = async (feedbackId: string) => {
     if (selectedRowId === feedbackId) return;
-    
     setSelectedRowId(feedbackId);
     setModalLoading(true);
-    
     try {
       const result = await getFeedbackDetails(feedbackId);
       if (result.success && result.data && isMountedRef.current) {
@@ -200,7 +179,7 @@ const Feedback: React.FC = () => {
         setShowModal(true);
       }
     } catch (err) {
-      console.error('Error:', err);
+      console.error('[Feedback] Error loading details:', err);
     } finally {
       setModalLoading(false);
       setSelectedRowId(null);
@@ -209,7 +188,6 @@ const Feedback: React.FC = () => {
 
   const handleUpdateStatus = async (status: string) => {
     if (!selectedFeedback) return;
-    
     const result = await updateStatus(selectedFeedback.id, status);
     if (result.success && isMountedRef.current) {
       setShowModal(false);
@@ -217,6 +195,12 @@ const Feedback: React.FC = () => {
     }
   };
 
+  const closeModal = () => {
+    setShowModal(false);
+    setTimeout(() => setSelectedFeedback(null), 300);
+  };
+
+  // ─── Table row delete ─────────────────────────────────────────────────────
   const handleDeleteClick = (e: React.MouseEvent, feedbackItem: Feedback) => {
     e.stopPropagation();
     setFeedbackToDelete(feedbackItem);
@@ -225,36 +209,22 @@ const Feedback: React.FC = () => {
 
   const handleConfirmDelete = async () => {
     if (!feedbackToDelete || deleting) return;
-    
     setDeleting(true);
-    const result = await deleteFeedback(feedbackToDelete.id);
-    if (result.success) {
+    try {
+      await handleDeleteById(feedbackToDelete.id);
       setShowDeleteModal(false);
       setFeedbackToDelete(null);
-      if (selectedFeedback?.id === feedbackToDelete.id) {
-        setShowModal(false);
-        setSelectedFeedback(null);
-      }
-      setToastMessage({
-        id: feedbackToDelete.id,
-        title: '✅ Feedback Deleted',
-        message: 'Feedback has been deleted successfully'
-      });
-      setTimeout(() => setToastMessage(null), 3000);
+    } catch (err) {
+      console.error('[Feedback] Delete error:', err);
+      showToast('❌ Error', 'An error occurred while deleting');
+    } finally {
+      setDeleting(false);
     }
-    setDeleting(false); 
   };
 
-  const closeModal = () => {
-    setShowModal(false);
-    setTimeout(() => setSelectedFeedback(null), 300);
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric', month: 'short', day: 'numeric'
-    });
-  };
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+  const formatDate = (dateString: string) =>
+    new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 
   const getStatusClass = (status: string) => {
     switch (status) {
@@ -275,21 +245,17 @@ const Feedback: React.FC = () => {
     }
   };
 
-  // Memoize stats to prevent unnecessary recalculations
-  const statsData = useMemo(() => {
-    console.log('📊 [useMemo] Recalculating statsData from globalStats:', globalStats);
-    return globalStats || { total: 0, open: 0, inProgress: 0, resolved: 0, closed: 0, byType: {} };
-  }, [globalStats]);
-
-  console.log('🏁 [Feedback] RENDER with statsData:', statsData);
-  console.log('🏁 [Feedback] RenderKey:', renderKey);
+  const statsData = useMemo(
+    () => globalStats || { total: 0, open: 0, inProgress: 0, resolved: 0, closed: 0, byType: {} },
+    [globalStats]
+  );
 
   if (loading && feedback.length === 0) {
     return <LoadingScreen message="Loading feedback..." fullScreen />;
   }
 
   return (
-    <div className="feedback-wrapper" key={`wrapper-${renderKey}`}>
+    <div className="feedback-wrapper" key={`feedback-wrapper-${forceRender}-${statsUpdateTrigger}`}>
       {toastMessage && (
         <div className="feedback-toast" key={toastMessage.id}>
           <div className="toast-content">
@@ -318,63 +284,19 @@ const Feedback: React.FC = () => {
           </button>
         </div>
 
-        {/* DEBUG PANEL */}
-        <div style={{ background: '#f0f0f0', padding: '10px', margin: '10px', border: '1px solid red', fontSize: '12px', fontFamily: 'monospace' }}>
-          <h3 style={{ margin: 0, color: 'red' }}>🔴 DEBUG - Stats Values</h3>
-          <div><strong>Total:</strong> {statsData.total}</div>
-          <div><strong>Open:</strong> {statsData.open}</div>
-          <div><strong>In Progress:</strong> {statsData.inProgress}</div>
-          <div><strong>Resolved:</strong> {statsData.resolved}</div>
-          <div><strong>Closed:</strong> {statsData.closed}</div>
-          <div><strong>Render Key:</strong> {renderKey}</div>
+        <div className="feedback-stats" key={`stats-${forceRender}-${statsUpdateTrigger}`}>
+          <StatsCard label="Total" value={statsData.total} status="total" isActive={statusFilter === ''} onClick={() => handleStatClick('')} />
+          <StatsCard label="Open" value={statsData.open} status="open" isActive={statusFilter === 'OPEN'} onClick={() => handleStatClick('OPEN')} />
+          <StatsCard label="In Progress" value={statsData.inProgress} status="progress" isActive={statusFilter === 'IN_PROGRESS'} onClick={() => handleStatClick('IN_PROGRESS')} />
+          <StatsCard label="Resolved" value={statsData.resolved} status="resolved" isActive={statusFilter === 'RESOLVED'} onClick={() => handleStatClick('RESOLVED')} />
+          <StatsCard label="Closed" value={statsData.closed} status="closed" isActive={statusFilter === 'CLOSED'} onClick={() => handleStatClick('CLOSED')} />
         </div>
 
-        {/* Stats Cards - Using separate component with key */}
-        <div className="feedback-stats" key={`stats-container-${renderKey}`}>
-          <StatsCard
-            label="Total"
-            value={statsData.total}
-            status="total"
-            isActive={statusFilter === ''}
-            onClick={() => handleStatClick('')}
-          />
-          <StatsCard
-            label="Open"
-            value={statsData.open}
-            status="open"
-            isActive={statusFilter === 'OPEN'}
-            onClick={() => handleStatClick('OPEN')}
-          />
-          <StatsCard
-            label="In Progress"
-            value={statsData.inProgress}
-            status="progress"
-            isActive={statusFilter === 'IN_PROGRESS'}
-            onClick={() => handleStatClick('IN_PROGRESS')}
-          />
-          <StatsCard
-            label="Resolved"
-            value={statsData.resolved}
-            status="resolved"
-            isActive={statusFilter === 'RESOLVED'}
-            onClick={() => handleStatClick('RESOLVED')}
-          />
-          <StatsCard
-            label="Closed"
-            value={statsData.closed}
-            status="closed"
-            isActive={statusFilter === 'CLOSED'}
-            onClick={() => handleStatClick('CLOSED')}
-          />
-        </div>
-
-        {/* Filters */}
         <div className="feedback-filters">
           <div className="feedback-search">
             <div className="feedback-search-wrapper">
               <svg className="feedback-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
               <input
                 type="text"
@@ -399,7 +321,7 @@ const Feedback: React.FC = () => {
               </svg>
             </div>
             <h3>No feedback found</h3>
-            <p>{searchInput || statusFilter ? "No feedback matches your filters." : "No feedback submissions yet."}</p>
+            <p>{searchInput || statusFilter ? 'No feedback matches your filters.' : 'No feedback submissions yet.'}</p>
             {(searchInput || statusFilter) && <button onClick={clearFilters}>Clear Filters</button>}
           </div>
         ) : feedback.length > 0 ? (
@@ -465,12 +387,13 @@ const Feedback: React.FC = () => {
           loading={modalLoading}
           onUpdateStatus={handleUpdateStatus}
           nextStatusOptions={getNextStatusOptions(selectedFeedback.status)}
+          onDelete={handleDeleteById}
         />
       )}
 
       <DeleteConfirmationModal
         isOpen={showDeleteModal}
-        onClose={() => setShowDeleteModal(false)}
+        onClose={() => { setShowDeleteModal(false); setFeedbackToDelete(null); }}
         onConfirm={handleConfirmDelete}
         feedbackTitle={feedbackToDelete?.message.substring(0, 50) || ''}
         deleting={deleting}

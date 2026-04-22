@@ -1,4 +1,4 @@
-// layouts/AdminSidebar.tsx - FULLY UPDATED WITH ALL NOTIFICATION EVENTS
+// layouts/AdminSidebar.tsx - COMPLETELY FIXED (no warnings)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -18,10 +18,10 @@ import {
   faLayerGroup,
 } from '@fortawesome/free-solid-svg-icons';
 import { useAdminAuth } from '../hooks/useAdminAuth';
+import { useAdminSocket } from '../contexts/AdminSocketContext';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
 import { AdminNotificationsService } from '../services/admin.notifications.service';
 import { AdminReportsService } from '../services/admin.report.services';
-import { adminSocket, connectAdminSocket } from '../services/adminSocket';
 import './styles/AdminSidebar.css';
 
 interface SidebarProps {
@@ -33,19 +33,21 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   const location = useLocation();
   const navigate = useNavigate();
   const { admin, logout } = useAdminAuth();
+  const { subscribe } = useAdminSocket();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [feedbackCount, setFeedbackCount] = useState<number>(0);
   const [notificationCount, setNotificationCount] = useState<number>(0);
   const [reportCount, setReportCount] = useState<number>(0);
   
   const isMountedRef = useRef(true);
-  const listenersInitializedRef = useRef(false);
-  const retryCountRef = useRef(0);
-  const maxRetries = 10;
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const initialLoadDoneRef = useRef(false);
 
-  // ========== FETCH INITIAL COUNTS ==========
+  // ========== FETCH ALL COUNTS (COMPLETE REFRESH) ==========
   const fetchAllCounts = useCallback(async () => {
     if (!isMountedRef.current) return;
+    
+    console.log('📊 [SIDEBAR] Fetching all counts...');
     
     try {
       const [statsResult, unreadResult, reportsResult] = await Promise.allSettled([
@@ -57,240 +59,218 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       if (!isMountedRef.current) return;
 
       if (statsResult.status === 'fulfilled' && statsResult.value.success && statsResult.value.data) {
-        const openCount = (statsResult.value.data.open || 0) + (statsResult.value.data.inProgress || 0);
-        setFeedbackCount(openCount);
+        const pendingCount = (statsResult.value.data.open || 0) + (statsResult.value.data.inProgress || 0);
+        console.log(`📊 [SIDEBAR] Feedback count: ${pendingCount}`);
+        setFeedbackCount(pendingCount);
       }
 
       if (unreadResult.status === 'fulfilled' && unreadResult.value.success && unreadResult.value.data) {
+        console.log(`📊 [SIDEBAR] Notification count: ${unreadResult.value.data.count}`);
         setNotificationCount(unreadResult.value.data.count);
       }
 
       if (reportsResult.status === 'fulfilled' && reportsResult.value.success && reportsResult.value.pagination) {
+        console.log(`📊 [SIDEBAR] Report count: ${reportsResult.value.pagination.total}`);
         setReportCount(reportsResult.value.pagination.total);
       }
     } catch (error) {
-      console.error('Failed to fetch counts:', error);
+      console.error('❌ [SIDEBAR] Failed to fetch counts:', error);
     }
   }, []);
 
-  // ========== REFRESH FEEDBACK COUNT ==========
+  // ========== REFRESH FUNCTIONS ==========
   const refreshFeedbackCount = useCallback(async () => {
     if (!isMountedRef.current) return;
     
+    console.log('🔄 [SIDEBAR] Refreshing feedback count...');
     const result = await AdminFeedbackService.getFeedbackStats();
     if (isMountedRef.current && result.success && result.data) {
-      const openCount = (result.data.open || 0) + (result.data.inProgress || 0);
-      setFeedbackCount(openCount);
+      const pendingCount = (result.data.open || 0) + (result.data.inProgress || 0);
+      console.log(`📊 [SIDEBAR] New feedback count: ${pendingCount}`);
+      setFeedbackCount(pendingCount);
     }
   }, []);
 
-  // ========== REFRESH NOTIFICATION COUNT ==========
   const refreshNotificationCount = useCallback(async () => {
     if (!isMountedRef.current) return;
     
+    console.log('🔄 [SIDEBAR] Refreshing notification count...');
     const result = await AdminNotificationsService.getUnreadCount();
     if (isMountedRef.current && result.success && result.data) {
+      console.log(`📊 [SIDEBAR] New notification count: ${result.data.count}`);
       setNotificationCount(result.data.count);
     }
   }, []);
 
-  // ========== REFRESH REPORT COUNT ==========
   const refreshReportCount = useCallback(async () => {
     if (!isMountedRef.current) return;
     
+    console.log('🔄 [SIDEBAR] Refreshing report count...');
     const result = await AdminReportsService.getReports({ status: 'PENDING', limit: 1 });
     if (isMountedRef.current && result.success && result.pagination) {
+      console.log(`📊 [SIDEBAR] New report count: ${result.pagination.total}`);
       setReportCount(result.pagination.total);
     }
   }, []);
 
-  // ========== SETUP SOCKET LISTENERS ==========
-  const setupSocketListeners = useCallback(() => {
-    if (listenersInitializedRef.current) return;
-    
-    if (!adminSocket.isConnected) {
-      console.log('⏳ [SIDEBAR] Socket not connected yet, will retry...');
-      return;
-    }
-    
-    listenersInitializedRef.current = true;
-    
-    console.log('✅ [SIDEBAR] Socket connected, setting up listeners');
-    
-    // Feedback event handlers
-    const handleFeedbackStatus = () => {
-      console.log('📢 [SIDEBAR] Real-time feedback update');
-      refreshFeedbackCount();
-    };
-    
-    const handleFeedbackDeleted = () => {
-      console.log('📢 [SIDEBAR] Real-time feedback deleted');
-      refreshFeedbackCount();
-    };
-    
-    // Notification event handlers
-    const handleNotificationNew = () => {
-      console.log('📢 [SIDEBAR] New notification received');
-      refreshNotificationCount();
-    };
-    
-    const handleNotificationRead = () => {
-      console.log('📢 [SIDEBAR] Notification marked as read');
-      refreshNotificationCount();
-    };
-    
-    const handleNotificationReadAll = () => {
-      console.log('📢 [SIDEBAR] All notifications marked as read');
-      refreshNotificationCount();
-    };
-    
-    const handleNotificationDeleted = () => {
-      console.log('📢 [SIDEBAR] Notification deleted');
-      refreshNotificationCount();
-    };
-    
-    const handleNotificationsDeletedAll = () => {
-      console.log('📢 [SIDEBAR] All notifications deleted');
-      refreshNotificationCount();
-    };
-    
-    const handleNotificationsDeletedRead = () => {
-      console.log('📢 [SIDEBAR] Read notifications deleted');
-      refreshNotificationCount();
-    };
-    
-    const handleNotificationCountRefresh = () => {
-      console.log('📢 [SIDEBAR] Notification count refresh requested');
-      refreshNotificationCount();
-    };
-    
-    // Report event handlers
-    const handleReportStatus = () => {
-      console.log('📢 [SIDEBAR] Report status changed');
-      refreshReportCount();
-    };
-    
-    const handleReportDeleted = () => {
-      console.log('📢 [SIDEBAR] Report deleted');
-      refreshReportCount();
-    };
-    
-    const handleBulkReports = () => {
-      console.log('📢 [SIDEBAR] Bulk reports updated');
-      refreshReportCount();
-    };
-    
-    // Register all listeners
-    // Feedback events
-    adminSocket.on('feedback:status', handleFeedbackStatus);
-    adminSocket.on('feedback:deleted', handleFeedbackDeleted);
-    
-    // Notification events
-    adminSocket.on('notification:new', handleNotificationNew);
-    adminSocket.on('notification:read', handleNotificationRead);
-    adminSocket.on('notification:read:all', handleNotificationReadAll);
-    adminSocket.on('notification:deleted', handleNotificationDeleted);
-    adminSocket.on('notification:deleted:all', handleNotificationsDeletedAll);
-    adminSocket.on('notification:deleted:read', handleNotificationsDeletedRead);
-    adminSocket.on('notification:count:refresh', handleNotificationCountRefresh);
-    
-    // Report events
-    adminSocket.on('report:status', handleReportStatus);
-    adminSocket.on('report:deleted', handleReportDeleted);
-    adminSocket.on('reports:bulk-updated', handleBulkReports);
-    
-    console.log('✅ [SIDEBAR] All socket listeners initialized');
-  }, [refreshFeedbackCount, refreshNotificationCount, refreshReportCount]);
-
-  // ========== CONNECT SOCKET AND SETUP LISTENERS ==========
+  // ========== INITIAL LOAD - FIXED (no setState warning) ==========
   useEffect(() => {
-    isMountedRef.current = true;
-    retryCountRef.current = 0;
+    let isActive = true;
     
-    const connectAndSetup = async () => {
-      try {
-        await connectAdminSocket();
-        
-        setTimeout(() => {
-          if (adminSocket.isConnected) {
-            setupSocketListeners();
-          } else {
-            console.log('⏳ [SIDEBAR] Socket still not connected after connection attempt');
-            if (retryCountRef.current < maxRetries) {
-              retryCountRef.current++;
-              setTimeout(connectAndSetup, 2000);
-            }
-          }
-        }, 500);
-      } catch (error) {
-        console.error('❌ [SIDEBAR] Socket connection error:', error);
-        if (retryCountRef.current < maxRetries) {
-          retryCountRef.current++;
-          setTimeout(connectAndSetup, 2000);
-        }
+    const loadInitialData = async () => {
+      if (!initialLoadDoneRef.current && isActive) {
+        initialLoadDoneRef.current = true;
+        await fetchAllCounts();
       }
     };
     
-    connectAndSetup();
+    loadInitialData();
     
     return () => {
-      isMountedRef.current = false;
-      // Clean up all listeners
-      adminSocket.off('feedback:status');
-      adminSocket.off('feedback:deleted');
-      adminSocket.off('notification:new');
-      adminSocket.off('notification:read');
-      adminSocket.off('notification:read:all');
-      adminSocket.off('notification:deleted');
-      adminSocket.off('notification:deleted:all');
-      adminSocket.off('notification:deleted:read');
-      adminSocket.off('notification:count:refresh');
-      adminSocket.off('report:status');
-      adminSocket.off('report:deleted');
-      adminSocket.off('reports:bulk-updated');
-      listenersInitializedRef.current = false;
-    };
-  }, [setupSocketListeners]);
-
-  // ========== INITIAL FETCH - Run once on mount ==========
-  useEffect(() => {
-    const loadInitialCounts = async () => {
-      await fetchAllCounts();
-    };
-    
-    loadInitialCounts();
-    
-    return () => {
-      isMountedRef.current = false;
+      isActive = false;
     };
   }, [fetchAllCounts]);
 
-  // ========== REFRESH WHEN PAGE BECOMES VISIBLE ==========
+  // ========== SETUP SOCKET SUBSCRIPTIONS ==========
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    isMountedRef.current = true;
     
+    console.log('🎧 [SIDEBAR] Setting up socket subscriptions...');
+    
+    const unsubscribeFeedbackStatus = subscribe('feedback:status', () => {
+      refreshFeedbackCount();
+    });
+    
+    const unsubscribeFeedbackDeleted = subscribe('feedback:deleted', () => {
+      refreshFeedbackCount();
+    });
+    
+    const unsubscribeFeedbackNew = subscribe('feedback:new', () => {
+      refreshFeedbackCount();
+    });
+    
+    const unsubscribeFeedbackUpdated = subscribe('feedback:updated', () => {
+      refreshFeedbackCount();
+    });
+    
+    const unsubscribeNotificationNew = subscribe('notification:new', () => {
+      refreshNotificationCount();
+    });
+    
+    const unsubscribeNotificationRead = subscribe('notification:read', () => {
+      refreshNotificationCount();
+    });
+    
+    const unsubscribeNotificationReadAll = subscribe('notification:read:all', () => {
+      refreshNotificationCount();
+    });
+    
+    const unsubscribeNotificationDeleted = subscribe('notification:deleted', () => {
+      refreshNotificationCount();
+    });
+    
+    const unsubscribeReportStatus = subscribe('report:status', () => {
+      refreshReportCount();
+    });
+    
+    const unsubscribeReportDeleted = subscribe('report:deleted', () => {
+      refreshReportCount();
+    });
+    
+    const unsubscribeReportsBulkUpdated = subscribe('reports:bulk-updated', () => {
+      refreshReportCount();
+    });
+   const unsubscribeUserCreated = subscribe('feedback:user:created', (data) => {
+  console.log('📢 [SIDEBAR] User created feedback event (fallback):', data);
+  refreshFeedbackCount();
+});
+
+
     const handleVisibilityChange = () => {
       if (!document.hidden && isMountedRef.current) {
+        console.log('👁️ [SIDEBAR] Page became visible, refreshing counts...');
         fetchAllCounts();
       }
     };
-    
+     
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [fetchAllCounts]);
+    
+    // Periodic refresh fallback
+    const intervalId = setInterval(() => {
+      if (isMountedRef.current) {
+        console.log('⏰ [SIDEBAR] Periodic refresh...');
+        fetchAllCounts();
+      }
+    }, 30000);
+    
+    // ✅ FIXED: Copy ref value to variable for cleanup
+    const timeoutId = refreshTimeoutRef.current;
+    
+    return () => {
+      console.log('🧹 [SIDEBAR] Cleaning up...');
+      isMountedRef.current = false;
+      unsubscribeFeedbackStatus();
+      unsubscribeFeedbackDeleted();
+      unsubscribeFeedbackNew();
+       unsubscribeUserCreated();
+      unsubscribeFeedbackUpdated();
+      unsubscribeNotificationNew();
+      unsubscribeNotificationRead();
+      unsubscribeNotificationReadAll();
+      unsubscribeNotificationDeleted();
+      unsubscribeReportStatus();
+      unsubscribeReportDeleted();
+      unsubscribeReportsBulkUpdated();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(intervalId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [subscribe, refreshFeedbackCount, refreshNotificationCount, refreshReportCount, fetchAllCounts]);
 
+
+
+// ========== DEBUG: Log ALL socket events ==========
+useEffect(() => {
+  // Create a debug subscription that logs everything
+  const debugUnsubscribe = subscribe('*', (data) => {
+    console.log('🔍🔍🔍 [SIDEBAR] RAW SOCKET EVENT:', data);
+    
+    // Check if data has event info
+    if (data && typeof data === 'object') {
+      console.log('Event data:', JSON.stringify(data, null, 2));
+    }
+  });
+  
+  return () => {
+    debugUnsubscribe();
+  };
+}, [subscribe]);
+
+useEffect(() => {
+  console.log('🟢 [SIDEBAR] MOUNTED');
+  return () => {
+    console.log('🔴 [SIDEBAR] UNMOUNTED');
+  };
+}, []);
+
+  
+  // ========== HELPER FUNCTIONS ==========
   const isActive = (path: string) => {
-    return location.pathname.startsWith(path);
+    return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 
   const handleLogout = async () => {
+    console.log('🚪 [SIDEBAR] Logging out...');
     await logout();
     navigate('/admin/login');
   };
 
   const getDisplayRole = (role: string | undefined) => {
     if (!role) return 'Administrator';
-    if (role === 'SUPER_ADMIN') return 'Administrator';
+    if (role === 'SUPER_ADMIN') return 'Super Admin';
+    if (role === 'ADMIN') return 'Administrator';
     return role.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
   };
 
@@ -329,7 +309,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
             </div>
             {!collapsed && <span className="logo-text">Admin Dashboard</span>}
           </div>
-          <button className="toggle-btn" onClick={onToggle}>
+          <button className="toggle-btn" onClick={onToggle} aria-label="Toggle sidebar">
             <FontAwesomeIcon icon={collapsed ? faChevronRight : faChevronLeft} />
           </button>
         </div>
@@ -340,7 +320,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
           </div>
           {!collapsed && (
             <div className="profile-info">
-              <div className="profile-name">{admin?.fullName || 'Admin'}</div>
+              <div className="profile-name">{admin?.fullName || 'Admin User'}</div>
               <div className="profile-role">{getDisplayRole(admin?.role)}</div>
             </div>
           )}

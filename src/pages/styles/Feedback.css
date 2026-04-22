@@ -1,4 +1,4 @@
-/* Feedback.css - COMPLETE WITH REFRESH BUTTON AND ALL STYLES */
+/* Feedback.css - COMPLETE WITH FIXED EMPTY STATE AND CLEAR FILTERS */
 
 .feedback-wrapper {
   min-height: 100vh;
@@ -21,6 +21,7 @@
   flex-wrap: wrap;
   gap: 20px;
 }
+
 /* Action buttons container */
 .feedback-action-buttons {
   display: flex;
@@ -713,7 +714,7 @@
   margin-top: 24px;
 }
 
-.feedback-pagination-btn {
+.feedback-pagination button {
   padding: 8px 20px;
   background: white;
   border: 1px solid #e9ecef;
@@ -725,24 +726,24 @@
   transition: all 0.2s ease;
 }
 
-.feedback-pagination-btn:hover:not(:disabled) {
+.feedback-pagination button:hover:not(:disabled) {
   background: #2b8a3e;
   border-color: #2b8a3e;
   color: white;
   transform: translateY(-1px);
 }
 
-.feedback-pagination-btn:disabled {
+.feedback-pagination button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.feedback-pagination-info {
+.feedback-pagination span {
   font-size: 14px;
   color: #6b7280;
 }
 
-/* Empty State */
+/* ===== FIXED EMPTY STATE STYLES ===== */
 .feedback-empty {
   text-align: center;
   padding: 60px 20px;
@@ -750,6 +751,10 @@
   border-radius: 16px;
   border: 2px dashed #e9ecef;
   margin: 20px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .feedback-empty-icon {
@@ -769,38 +774,123 @@
   height: 40px;
 }
 
-.feedback-empty-title {
+.feedback-empty h3 {
   font-size: 18px;
   font-weight: 600;
   color: #212529;
-  margin-bottom: 8px;
+  margin: 0 0 8px 0;
 }
 
-.feedback-empty-message {
+.feedback-empty p {
   font-size: 14px;
   color: #868e96;
-  margin-bottom: 20px;
+  margin: 0 0 20px 0;
   max-width: 400px;
-  margin-left: auto;
-  margin-right: auto;
 }
 
-.feedback-empty-btn {
+/* ===== CLEAR FILTERS BUTTON STYLES ===== */
+.feedback-empty button,
+.clear-filters-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   padding: 10px 24px;
   background: #2b8a3e;
   color: white;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.feedback-empty button:hover,
+.clear-filters-btn:hover {
+  background: #1e6b2c;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(43, 138, 62, 0.25);
+}
+
+.feedback-empty button:active,
+.clear-filters-btn:active {
+  transform: translateY(0);
+}
+
+/* Clear filters button in the filter bar (if you add one) */
+.feedback-clear-filters {
+  padding: 10px 20px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 10px;
+  color: #dc2626;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.feedback-empty-btn:hover {
-  background: #1e6b2c;
+.feedback-clear-filters:hover {
+  background: #fee2e2;
+  border-color: #dc2626;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(43, 138, 62, 0.2);
+}
+
+.feedback-clear-filters svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Active filter indicator */
+.feedback-active-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  border: 1px solid #e9ecef;
+}
+
+.feedback-active-filters-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #495057;
+}
+
+.feedback-filter-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: white;
+  border: 1px solid #e9ecef;
+  border-radius: 20px;
+  font-size: 12px;
+  color: #2b8a3e;
+}
+
+.feedback-filter-tag button {
+  background: none;
+  border: none;
+  color: #dc2626;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.feedback-filter-tag button:hover {
+  color: #b91c1c;
 }
 
 /* Error Display */
@@ -853,6 +943,23 @@
     left: 20px;
     right: 20px;
     max-width: none;
+  }
+  
+  .feedback-empty {
+    padding: 40px 20px;
+  }
+  
+  .feedback-empty h3 {
+    font-size: 16px;
+  }
+  
+  .feedback-empty p {
+    font-size: 13px;
+  }
+  
+  .feedback-empty button {
+    padding: 8px 20px;
+    font-size: 13px;
   }
 }
 

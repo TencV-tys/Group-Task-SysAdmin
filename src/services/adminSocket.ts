@@ -1,11 +1,10 @@
-// services/adminSocket.ts - COMPLETE FIXED VERSION (no async executor)
+// services/adminSocket.ts - FIXED (adds onAny)
 
 import { io, Socket } from 'socket.io-client';
 import { getAdminAccessToken } from './admin.auth.service';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
-// Define a proper callback type
 type EventCallback = (...args: unknown[]) => void;
 
 class AdminSocketService {
@@ -14,30 +13,17 @@ class AdminSocketService {
   private connectionPromise: Promise<void> | null = null;
 
   async connect(token?: string): Promise<void> {
-    if (this.socket?.connected) {
-      console.log('✅ Admin socket already connected');
-      return;
-    }
+    if (this.socket?.connected) return;
+    if (this.connectionPromise) return this.connectionPromise;
 
-    // If already connecting, return existing promise
-    if (this.connectionPromise) {
-      return this.connectionPromise;
-    }
-
-    // Create promise without async executor
     this.connectionPromise = new Promise((resolve, reject) => {
-      // Get token outside the promise executor to avoid async issues
       const setupConnection = async () => {
         try {
           const accessToken = token || await getAdminAccessToken();
-          
           if (!accessToken) {
-            console.log('❌ No admin token found, cannot connect socket');
             reject(new Error('No admin token'));
             return;
           }
-
-          console.log('🔌 Connecting admin socket...');
 
           this.socket = io(API_URL, {
             auth: { token: accessToken },
@@ -47,15 +33,22 @@ class AdminSocketService {
             reconnectionDelay: 1000,
           });
 
+          const timeoutId = setTimeout(() => {
+            if (!this.socket?.connected) {
+              this.connectionPromise = null;
+              reject(new Error('Connection timeout'));
+            }
+          }, 10000);
+
           this.socket.on('connect', () => {
-            console.log('✅ Admin socket connected:', this.socket?.id);
+            clearTimeout(timeoutId);
             this.socket?.emit('admin:register');
             this.connectionPromise = null;
             resolve();
           });
 
           this.socket.on('connect_error', (error) => {
-            console.error('❌ Admin socket connection error:', error.message);
+            clearTimeout(timeoutId);
             this.connectionPromise = null;
             reject(error);
           });
@@ -64,7 +57,7 @@ class AdminSocketService {
             console.log('🔌 Admin socket disconnected:', reason);
           });
 
-          // Listen for all events dynamically
+          // Keep per-event listeners working (used by useAdminFeedback hook)
           this.socket.onAny((event: string, ...args: unknown[]) => {
             const callbacks = this.listeners.get(event);
             if (callbacks) {
@@ -72,18 +65,6 @@ class AdminSocketService {
             }
           });
 
-          // Set timeout for connection
-          const timeoutId = setTimeout(() => {
-            if (!this.socket?.connected) {
-              this.connectionPromise = null;
-              reject(new Error('Connection timeout'));
-            }
-          }, 10000);
-
-          // Clear timeout on cleanup
-          this.socket?.on('connect', () => clearTimeout(timeoutId));
-          this.socket?.on('connect_error', () => clearTimeout(timeoutId));
-          
         } catch (error) {
           this.connectionPromise = null;
           reject(error);
@@ -96,6 +77,14 @@ class AdminSocketService {
     return this.connectionPromise;
   }
 
+  emit(event: string, ...args: unknown[]): void {
+    if (this.socket?.connected) {
+      this.socket.emit(event, ...args);
+    } else {
+      console.warn(`⚠️ [Socket] Not connected, cannot emit: ${event}`);
+    }
+  }
+
   disconnect(): void {
     if (this.socket) {
       this.socket.disconnect();
@@ -105,42 +94,39 @@ class AdminSocketService {
   }
 
   on(event: string, callback: EventCallback): void {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, []);
-    }
+    if (!this.listeners.has(event)) this.listeners.set(event, []);
     this.listeners.get(event)!.push(callback);
-    
-    if (this.socket) {
-      this.socket.on(event, callback);
-    }
+    if (this.socket) this.socket.on(event, callback);
   }
 
   off(event: string, callback?: EventCallback): void {
     if (callback) {
       const callbacks = this.listeners.get(event);
       if (callbacks) {
-        const index = callbacks.indexOf(callback);
-        if (index > -1) callbacks.splice(index, 1);
+        const idx = callbacks.indexOf(callback);
+        if (idx > -1) callbacks.splice(idx, 1);
       }
-      if (this.socket) {
-        this.socket.off(event, callback);
-      }
+      if (this.socket) this.socket.off(event, callback);
     } else {
       this.listeners.delete(event);
-      if (this.socket) {
-        this.socket.removeAllListeners(event);
-      }
+      if (this.socket) this.socket.removeAllListeners(event);
     }
   }
 
-  get isConnected(): boolean {
-    return this.socket?.connected || false;
+  // FIX: used by AdminSocketContext to register a single catch-all handler
+  onAny(callback: (event: string, ...args: unknown[]) => void): void {
+    if (this.socket) {
+      this.socket.onAny(callback);
+    } else {
+      console.warn('[Socket] onAny called before socket initialized');
+    }
   }
+
+  get isConnected(): boolean { return this.socket?.connected || false; }
+  get socketId(): string | undefined { return this.socket?.id; }
 }
 
 export const adminSocket = new AdminSocketService();
-
-// Helper function to connect admin socket
-export const connectAdminSocket = async (): Promise<void> => {
-  return adminSocket.connect();
-};
+export const connectAdminSocket = async (): Promise<void> => adminSocket.connect();
+export const disconnectAdminSocket = (): void => adminSocket.disconnect();
+export const emitAdminEvent = (event: string, ...args: unknown[]): void => adminSocket.emit(event, ...args); 

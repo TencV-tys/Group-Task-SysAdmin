@@ -1,13 +1,12 @@
-// hooks/useAdminFeedback.ts - Add version counter
+// hooks/useAdminFeedback.ts - COMPLETE REAL-TIME VERSION
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
 import { adminSocket, connectAdminSocket } from '../services/adminSocket';
-import type { 
-  Feedback, 
-  FeedbackFilters,  
-  FeedbackStats,  
-  FeedbackDetailsResponse, 
+import type {
+  Feedback,
+  FeedbackFilters,
+  FeedbackDetailsResponse,
   UpdateStatusResponse,
   DeleteResponse
 } from '../services/admin.feedback.service';
@@ -16,259 +15,276 @@ export function useAdminFeedback() {
   const [feedback, setFeedback] = useState<Feedback[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [globalStats, setGlobalStats] = useState<FeedbackStats | null>(null);
+  const [globalStats, setGlobalStats] = useState<any>(null);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, pages: 0 });
   const [actionLoading, setActionLoading] = useState(false);
   const [hasNewFeedback, setHasNewFeedback] = useState(false);
   const [filters, setFilters] = useState<FeedbackFilters>({ page: 1, limit: 10 });
-  // ADD THIS: Version counter to force re-renders
-  const [statsVersion, setStatsVersion] = useState(0);
+  
+  // ✅ FORCE RE-RENDER TRACKER
+  const [statsUpdateTrigger, setStatsUpdateTrigger] = useState(0);
 
   const isMountedRef = useRef(true);
   const initialLoadDoneRef = useRef(false);
   const isDeletingRef = useRef(false);
-  const fetchCountRef = useRef(0);
-  const filtersRef = useRef(filters);
+  const filtersRef = useRef<FeedbackFilters>({ page: 1, limit: 10 });
+  const lastStatsRef = useRef<string>('');
 
-  useEffect(() => {
-    filtersRef.current = filters;
-  }, [filters]);
+  // Sequence counters for race condition prevention
+  const fetchSeqRef = useRef(0);
+  const userSeqRef = useRef(0);
+  const bgDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     isMountedRef.current = true;
     connectAdminSocket().catch(console.error);
-    return () => { isMountedRef.current = false; };
+    return () => {
+      isMountedRef.current = false;
+      if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current);
+    };
   }, []);
 
-  const buildApiFilters = useCallback((customFilters?: FeedbackFilters): FeedbackFilters => {
-    const currentFilters = customFilters || filters;
-    return {
-      page: currentFilters.page || 1,
-      limit: currentFilters.limit || 10,
-      status: currentFilters.status,
-      search: currentFilters.search,
-      type: currentFilters.type,
-      sortBy: currentFilters.sortBy,
-      sortOrder: currentFilters.sortOrder,
-    };
-  }, [filters]);
-
-  const fetchFeedback = useCallback(async (filterParams?: FeedbackFilters) => {
-    const fetchId = ++fetchCountRef.current;
-    console.log(`📤 [fetchFeedback:${fetchId}] called`);
-    
+  // ─── fetchFeedback ──────────────────────────────────────────────────────────
+  const fetchFeedback = useCallback(async (
+    filterParams?: FeedbackFilters,
+    showSpinner = false
+  ) => {
     if (!isMountedRef.current) return { success: false, message: 'Unmounted' };
 
-    setLoading(true);
+    const seq = ++fetchSeqRef.current;
+    if (showSpinner) setLoading(true);
     setError(null);
 
-    const finalFilters = buildApiFilters(filterParams);
-    console.log(`📤 [fetchFeedback:${fetchId}] finalFilters:`, finalFilters);
+    const finalFilters: FeedbackFilters = { ...filtersRef.current, ...filterParams };
 
     try {
       const result = await AdminFeedbackService.getFeedback(finalFilters);
 
-      if (isMountedRef.current) {
-        if (result.success && result.data) {
-          console.log(`✅ [fetchFeedback:${fetchId}] Setting feedback count:`, result.data.feedback?.length);
-          setFeedback(result.data.feedback || []);
-          setPagination({
-            page: result.data.pagination.page,
-            limit: result.data.pagination.limit,
-            total: result.data.pagination.total,
-            pages: result.data.pagination.pages
-          });
-          setHasNewFeedback(false);
-          return { success: true, data: result.data };
-        } else {
-          setError(result.message || 'Failed to load feedback');
-          return { success: false, message: result.message };
-        }
+      if (seq !== fetchSeqRef.current) return { success: false, message: 'Superseded' };
+      if (!isMountedRef.current) return { success: false, message: 'Unmounted' };
+
+      if (result.success && result.data) {
+        setFeedback(result.data.feedback || []);
+        setPagination({
+          page: result.data.pagination.page,
+          limit: result.data.pagination.limit,
+          total: result.data.pagination.total,
+          pages: result.data.pagination.pages,
+        });
+        setHasNewFeedback(false);
+        return { success: true, data: result.data };
+      } else {
+        setError(result.message || 'Failed to load feedback');
+        return { success: false, message: result.message };
       }
     } catch (err) {
-      console.error(`❌ [fetchFeedback:${fetchId}] ERROR:`, err);
+      if (seq !== fetchSeqRef.current) return { success: false, message: 'Superseded' };
       if (isMountedRef.current) {
-        const errorMessage = err instanceof Error ? err.message : 'Network error';
-        setError(errorMessage);
-        return { success: false, message: errorMessage };
+        const msg = err instanceof Error ? err.message : 'Network error';
+        setError(msg);
+        return { success: false, message: msg };
       }
     } finally {
-      if (isMountedRef.current) {
-        setLoading(false);
-      }
+      if (isMountedRef.current && showSpinner) setLoading(false);
     }
-    
-    return { success: false, message: 'Unknown error' };
-  }, [buildApiFilters]);
 
+    return { success: false, message: 'Unknown error' };
+  }, []);
+
+  // ─── fetchGlobalStats ───────────────────────────────────────────────────────
   const fetchGlobalStats = useCallback(async () => {
-    console.log('📊 [fetchGlobalStats] called');
     try {
       const result = await AdminFeedbackService.getFeedbackStats();
-      console.log('📊 [fetchGlobalStats] result from API:', result);
-      
       if (result.success && result.data && isMountedRef.current) {
-        console.log('✅ [fetchGlobalStats] Setting globalStats to NEW object:', result.data);
-        // Create a brand new object with spread operator
-        const newStats = { ...result.data };
-        setGlobalStats(newStats);
-        // INCREMENT VERSION COUNTER to force re-render
-        setStatsVersion(prev => prev + 1);
-        return { success: true, data: newStats };
+        const str = JSON.stringify(result.data);
+        if (str !== lastStatsRef.current) {
+          setGlobalStats({ ...result.data });
+          lastStatsRef.current = str;
+          // ✅ INCREMENT TRIGGER TO FORCE RE-RENDER
+          setStatsUpdateTrigger(prev => prev + 1);
+        }
+        return { success: true, data: result.data };
       }
-      return { success: false, message: result.message };
+      return { success: false };
     } catch (err) {
-      console.error('❌ [fetchGlobalStats] ERROR:', err);
-      return { success: false, message: 'Failed to fetch global stats' };
+      console.error('[fetchGlobalStats]', err);
+      return { success: false };
     }
   }, []);
 
-  const getFeedbackDetails = useCallback(async (feedbackId: string): Promise<FeedbackDetailsResponse> => {
-    console.log('🔍 [getFeedbackDetails] called for:', feedbackId);
+  // ─── backgroundRefresh ──────────────────────────────────────────────────────
+  const backgroundRefresh = useCallback(() => {
+    if (!isMountedRef.current) return;
+
+    if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current);
+
+    bgDebounceRef.current = setTimeout(() => {
+      if (!isMountedRef.current) return;
+      fetchFeedback(undefined, false);
+      fetchGlobalStats();
+    }, 100); // ✅ Reduced to 100ms for faster response
+  }, [fetchFeedback, fetchGlobalStats]);
+
+  // ─── getFeedbackDetails ─────────────────────────────────────────────────────
+  const getFeedbackDetails = useCallback(async (id: string): Promise<FeedbackDetailsResponse> => {
     try {
-      return await AdminFeedbackService.getFeedbackById(feedbackId);
-    } catch (err) {
-      console.error('❌ [getFeedbackDetails] ERROR:', err);
+      return await AdminFeedbackService.getFeedbackById(id);
+    } catch {
       return { success: false, message: 'Failed to fetch feedback details' };
     }
   }, []);
 
-  const updateStatus = useCallback(async (feedbackId: string, status: string): Promise<UpdateStatusResponse> => {
-    console.log('🔄 [updateStatus] called:', { feedbackId, status });
+  // ─── updateStatus ───────────────────────────────────────────────────────────
+  const updateStatus = useCallback(async (feedbackId: string, newStatus: string): Promise<UpdateStatusResponse> => {
     setActionLoading(true);
+
+    const myUserSeq = ++userSeqRef.current;
+
+    // ✅ Optimistic update - change status immediately in UI
+    setFeedback(prev =>
+      prev.map(f => f.id === feedbackId ? { ...f, status: newStatus } : f)
+    );
+
     try {
-      const result = await AdminFeedbackService.updateFeedbackStatus(feedbackId, status);
-      console.log('🔄 [updateStatus] result:', result);
+      const result = await AdminFeedbackService.updateFeedbackStatus(feedbackId, newStatus);
       if (result.success && isMountedRef.current) {
-        console.log('🔄 [updateStatus] Refreshing stats and feedback...');
-        await fetchGlobalStats();
-        await fetchFeedback(filtersRef.current);
-        setStatsVersion(prev => prev + 1);
+        const activeStatusFilter = filtersRef.current.status;
+
+        // If filtering by status, remove item if it no longer matches
+        if (activeStatusFilter && activeStatusFilter !== newStatus) {
+          setFeedback(prev => prev.filter(f => f.id !== feedbackId));
+        }
+
+        if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current);
+
+        if (myUserSeq === userSeqRef.current) {
+          await Promise.all([
+            fetchFeedback(undefined, false),
+            fetchGlobalStats(),
+          ]);
+          // ✅ Force re-render
+          setStatsUpdateTrigger(prev => prev + 1);
+        }
       }
       return result;
     } catch (err) {
-      console.error('❌ [updateStatus] ERROR:', err);
+      console.error('[updateStatus]', err);
+      // Rollback on error
+      await fetchFeedback(undefined, false);
       return { success: false, message: 'Failed to update status' };
     } finally {
       if (isMountedRef.current) setActionLoading(false);
     }
-  }, [fetchGlobalStats, fetchFeedback]);
+  }, [fetchFeedback, fetchGlobalStats]);
 
+  // ─── deleteFeedback ─────────────────────────────────────────────────────────
   const deleteFeedback = useCallback(async (feedbackId: string): Promise<DeleteResponse> => {
-    console.log('🗑️ [deleteFeedback] called:', feedbackId);
-    if (isDeletingRef.current) {
-      console.log('⏭️ Delete already in progress, skipping');
-      return { success: false, message: 'Delete already in progress' };
-    }
-    
+    if (isDeletingRef.current) return { success: false, message: 'Delete already in progress' };
     isDeletingRef.current = true;
     setActionLoading(true);
-    
+
+    const myUserSeq = ++userSeqRef.current;
+
+    // ✅ Optimistic remove immediately
+    setFeedback(prev => prev.filter(f => f.id !== feedbackId));
+
+    if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current);
+
     try {
       const result = await AdminFeedbackService.deleteFeedback(feedbackId);
-      if (result.success && isMountedRef.current) {
-        console.log('🗑️ [deleteFeedback] Refreshing stats and feedback...');
+      if (isMountedRef.current && myUserSeq === userSeqRef.current) {
         await Promise.all([
+          fetchFeedback(undefined, false),
           fetchGlobalStats(),
-          fetchFeedback(filtersRef.current)
         ]);
-        setStatsVersion(prev => prev + 1);
+        // ✅ Force re-render
+        setStatsUpdateTrigger(prev => prev + 1);
       }
       return result;
     } catch (err) {
-      console.error('❌ [deleteFeedback] ERROR:', err);
+      console.error('[deleteFeedback]', err);
+      if (isMountedRef.current) fetchFeedback(undefined, false);
       return { success: false, message: 'Failed to delete feedback' };
     } finally {
       if (isMountedRef.current) setActionLoading(false);
       isDeletingRef.current = false;
     }
-  }, [fetchGlobalStats, fetchFeedback]);
-
-  const updateFilters = useCallback((newFilters: FeedbackFilters) => {
-    console.log('🔵 [updateFilters] called:', newFilters);
-    const mergedFilters = { ...filters, ...newFilters };
-    console.log('🔵 [updateFilters] mergedFilters:', mergedFilters);
-    setFilters(mergedFilters);
-    fetchFeedback(mergedFilters);
-    fetchGlobalStats();
-  }, [filters, fetchFeedback, fetchGlobalStats]);
-
-  const refreshFeedback = useCallback(async () => {
-    console.log('🔄 [refreshFeedback] called');
-    await Promise.all([fetchFeedback(filtersRef.current), fetchGlobalStats()]);
-    setStatsVersion(prev => prev + 1);
   }, [fetchFeedback, fetchGlobalStats]);
 
-  // Socket listeners
-  useEffect(() => {
-    console.log('🔌🔌🔌 Setting up socket listeners... 🔌🔌🔌');
-    
-    const handleFeedbackStatus = (data: any) => {
-      console.log('🎯🎯🎯 [SOCKET] feedback:status RECEIVED! 🎯🎯🎯');
-      console.log('📦 Socket data:', data);
-      
-      if (!isMountedRef.current) return;
-      
-      setFeedback(prev => prev.map(f => 
-        f.id === data.feedbackId ? { ...f, status: data.newStatus } : f
-      ));
-      
-      fetchGlobalStats();
-      fetchFeedback(filtersRef.current);
-      setStatsVersion(prev => prev + 1);
-    };
-    
-    const handleFeedbackNew = (data: any) => {
-      console.log('🎯🎯🎯 [SOCKET] feedback:new RECEIVED! 🎯🎯🎯');
-      if (!isMountedRef.current) return;
-      setHasNewFeedback(true);
-      fetchGlobalStats();
-      fetchFeedback(filtersRef.current);
-      setStatsVersion(prev => prev + 1);
-    };
-    
-    const handleFeedbackDeleted = (data: any) => {
-      console.log('🎯🎯🎯 [SOCKET] feedback:deleted RECEIVED! 🎯🎯🎯');
-      if (!isMountedRef.current) return;
-      setFeedback(prev => prev.filter(f => f.id !== data.feedbackId));
-      fetchGlobalStats();
-      fetchFeedback(filtersRef.current);
-      setStatsVersion(prev => prev + 1);
-    };
-    
-    const handleFeedbackUpdated = (data: any) => {
-      console.log('🎯🎯🎯 [SOCKET] feedback:updated RECEIVED! 🎯🎯🎯');
-      if (!isMountedRef.current) return;
-      fetchGlobalStats();
-      fetchFeedback(filtersRef.current);
-      setStatsVersion(prev => prev + 1);
-    };
-    
-    adminSocket.on('feedback:status', handleFeedbackStatus);
-    adminSocket.on('feedback:new', handleFeedbackNew);
-    adminSocket.on('feedback:user:created', handleFeedbackNew);
-    adminSocket.on('feedback:deleted', handleFeedbackDeleted);
-    adminSocket.on('feedback:updated', handleFeedbackUpdated);
-    adminSocket.on('feedback:user:updated', handleFeedbackUpdated);
-    
-    console.log('✅ Socket listeners registered successfully');
-    
-    return () => {
-      adminSocket.off('feedback:status', handleFeedbackStatus);
-      adminSocket.off('feedback:new', handleFeedbackNew);
-      adminSocket.off('feedback:user:created', handleFeedbackNew);
-      adminSocket.off('feedback:deleted', handleFeedbackDeleted);
-      adminSocket.off('feedback:updated', handleFeedbackUpdated);
-      adminSocket.off('feedback:user:updated', handleFeedbackUpdated);
-    };
-  }, [fetchGlobalStats, fetchFeedback]);
+  // ─── updateFilters ──────────────────────────────────────────────────────────
+  const updateFilters = useCallback((newFilters: FeedbackFilters) => {
+    if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current);
+    ++userSeqRef.current;
 
-  // Initial load
+    const merged: FeedbackFilters = { ...filtersRef.current, ...newFilters };
+    filtersRef.current = merged;
+    setFilters(merged);
+    fetchFeedback(merged, true);
+    fetchGlobalStats();
+  }, [fetchFeedback, fetchGlobalStats]);
+
+  // ─── refreshFeedback ────────────────────────────────────────────────────────
+  const refreshFeedback = useCallback(async () => {
+    if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current);
+    ++userSeqRef.current;
+    await Promise.all([fetchFeedback(undefined, true), fetchGlobalStats()]);
+    setStatsUpdateTrigger(prev => prev + 1);
+  }, [fetchFeedback, fetchGlobalStats]);
+
+  // ─── Socket listeners ───────────────────────────────────────────────────────
+  useEffect(() => {
+    // ✅ Immediate status update from socket
+    const handleStatusChange = (data: any) => {
+      if (!isMountedRef.current) return;
+      console.log('[Socket] feedback:status received', data);
+      if (data?.feedbackId && data?.newStatus) {
+        setFeedback(prev =>
+          prev.map(f => f.id === data.feedbackId ? { ...f, status: data.newStatus } : f)
+        );
+      }
+      backgroundRefresh();
+    };
+
+    const handleNew = () => {
+      if (!isMountedRef.current) return;
+      console.log('[Socket] feedback:new received');
+      setHasNewFeedback(true);
+      backgroundRefresh();
+    };
+
+    const handleDeleted = (data: any) => {
+      if (!isMountedRef.current) return;
+      console.log('[Socket] feedback:deleted received', data);
+      if (data?.feedbackId) {
+        setFeedback(prev => prev.filter(f => f.id !== data.feedbackId));
+      }
+      backgroundRefresh();
+    };
+
+    const handleUpdated = () => {
+      if (!isMountedRef.current) return;
+      console.log('[Socket] feedback:updated received');
+      backgroundRefresh();
+    };
+
+    adminSocket.on('feedback:status', handleStatusChange);
+    adminSocket.on('feedback:new', handleNew);
+    adminSocket.on('feedback:deleted', handleDeleted);
+    adminSocket.on('feedback:updated', handleUpdated);
+
+    return () => {
+      adminSocket.off('feedback:status', handleStatusChange);
+      adminSocket.off('feedback:new', handleNew);
+      adminSocket.off('feedback:deleted', handleDeleted);
+      adminSocket.off('feedback:updated', handleUpdated);
+    };
+  }, [backgroundRefresh]);
+
+  // ─── Initial load ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (!initialLoadDoneRef.current) {
-      console.log('🚀 Initial load starting...');
       initialLoadDoneRef.current = true;
-      fetchFeedback({ page: 1, limit: 10 });
+      fetchFeedback({ page: 1, limit: 10 }, true);
       fetchGlobalStats();
     }
   }, [fetchFeedback, fetchGlobalStats]);
@@ -282,7 +298,7 @@ export function useAdminFeedback() {
     actionLoading,
     hasNewFeedback,
     currentFilters: filters,
-    statsVersion, // ADD THIS to return
+    statsUpdateTrigger, // ✅ EXPORT TRIGGER
     fetchFeedback,
     fetchGlobalStats,
     getFeedbackDetails,
