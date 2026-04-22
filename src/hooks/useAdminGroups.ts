@@ -1,12 +1,13 @@
-// hooks/useAdminGroups.ts - FIXED TYPES
+// hooks/useAdminGroups.ts - FIXED with proper socket listener
+
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { AdminGroupsService } from '../services/admin.groups.service';
+import { adminSocket } from '../services/adminSocket'; // ✅ ADD THIS IMPORT
 import type { 
   Group, 
   GroupFilters, 
- GroupResponse,
+  GroupResponse,
   ActionType,
-
   GroupStatisticsResponse,
   ReportAnalysisResponse,
   ApplyActionResult,
@@ -28,6 +29,7 @@ export function useAdminGroups() {
     hasMore: false
   });
   const [actionLoading, setActionLoading] = useState(false);
+  const [currentFilters, setCurrentFilters] = useState<GroupFilters>({}); // ✅ ADD currentFilters state
 
   const isMountedRef = useRef(true);
   const fetchCountRef = useRef(0);
@@ -47,6 +49,11 @@ export function useAdminGroups() {
     const fetchId = ++fetchCountRef.current;
     console.log(`📤 [useAdminGroups:${fetchId}] fetchGroups called with filters:`, filters);
     
+    // Update currentFilters when fetchGroups is called
+    if (filters) {
+      setCurrentFilters(filters);
+    }
+    
     setLoading(true);
     setError(null);
     
@@ -63,8 +70,8 @@ export function useAdminGroups() {
         setGroups(result.groups || []);
         setPagination(prev => ({
           total: result.pagination?.total || 0,
-          page: prev.page,
-          limit: prev.limit,
+          page: filters?.page || prev.page,
+          limit: filters?.limit || prev.limit,
           pages: result.pagination?.pages || 1,
           hasMore: result.pagination?.hasMore || false
         }));
@@ -156,6 +163,9 @@ export function useAdminGroups() {
       
       if (result.success) {
         console.log(`✅ [useAdminGroups] Action ${action} applied successfully`);
+        // Refresh groups and stats after action
+        await fetchGroups(currentFilters);
+        await fetchStats();
       } else {
         console.error(`❌ [useAdminGroups] Action ${action} failed:`, result.message);
       }
@@ -167,7 +177,7 @@ export function useAdminGroups() {
       setActionLoading(false);
       console.log(`🏁 [useAdminGroups] actionLoading set to false for ${action}`);
     }
-  }, []); 
+  }, [fetchGroups, fetchStats, currentFilters]); 
 
   // ===== DELETE GROUP =====
   const deleteGroup = useCallback(async (groupId: string, hardDelete?: boolean): Promise<DeleteGroupResponse> => {
@@ -184,6 +194,9 @@ export function useAdminGroups() {
       
       if (result.success) {
         console.log(`✅ [useAdminGroups] ${mode} successful`);
+        // Refresh groups and stats after delete
+        await fetchGroups(currentFilters);
+        await fetchStats();
       } else {
         console.error(`❌ [useAdminGroups] ${mode} failed:`, result.message);
       }
@@ -195,29 +208,95 @@ export function useAdminGroups() {
       setActionLoading(false);
       console.log(`🏁 [useAdminGroups] actionLoading set to false for delete`);
     }
+  }, [fetchGroups, fetchStats, currentFilters]);
+
+  // ===== GET GROUP BY ID =====
+  const getGroupById = useCallback(async (groupId: string): Promise<GroupResponse> => {
+    console.log('🔎 [useAdminGroups] getGroupById called for group:', groupId);
+    
+    try {
+      const result = await AdminGroupsService.getGroupById(groupId);
+      console.log('📦 [useAdminGroups] getGroupById response:', {
+        success: result.success,
+        hasGroup: 'group' in result ? !!result.group : false,
+        groupName: 'group' in result ? result.group?.name : undefined,
+        message: result.message
+      });
+      return result;
+    } catch (err) {
+      console.error('❌ [useAdminGroups] Exception in getGroupById:', err);
+      return { 
+        success: false, 
+        message: 'Failed to fetch group' 
+      };
+    }
   }, []);
 
-// ===== GET GROUP BY ID =====
-const getGroupById = useCallback(async (groupId: string): Promise<GroupResponse> => {
-  console.log('🔎 [useAdminGroups] getGroupById called for group:', groupId);
-  
-  try {
-    const result = await AdminGroupsService.getGroupById(groupId);
-    console.log('📦 [useAdminGroups] getGroupById response:', {
-      success: result.success,
-      hasGroup: 'group' in result ? !!result.group : false,
-      groupName: 'group' in result ? result.group?.name : undefined,
-      message: result.message
-    });
-    return result;
-  } catch (err) {
-    console.error('❌ [useAdminGroups] Exception in getGroupById:', err);
-    return { 
-      success: false, 
-      message: 'Failed to fetch group' 
+  // ===== REAL-TIME SOCKET LISTENER FOR GROUP REPORT COUNT UPDATES =====
+  useEffect(() => {
+    const handleGroupReportCountUpdated = () => {
+      console.log('📢 Real-time: Group report count updated, refreshing groups...');
+      // Refresh groups to get updated report counts
+      if (isMountedRef.current) {
+        fetchGroups(currentFilters);
+        fetchStats();
+      }
     };
-  }
-}, []);
+    
+    // Register the socket listener
+    adminSocket.on('group:report_count_updated', handleGroupReportCountUpdated);
+    
+    return () => {
+      adminSocket.off('group:report_count_updated', handleGroupReportCountUpdated);
+    };
+  }, [fetchGroups, fetchStats, currentFilters]);
+
+  // ===== OTHER SOCKET LISTENERS FOR GROUP ACTIONS =====
+  useEffect(() => {
+    const handleGroupSuspended = () => {
+      console.log('📢 Real-time: Group suspended, refreshing...');
+      if (isMountedRef.current) {
+        fetchGroups(currentFilters);
+        fetchStats();
+      }
+    };
+    
+    const handleGroupDeleted = () => {
+      console.log('📢 Real-time: Group deleted, refreshing...');
+      if (isMountedRef.current) {
+        fetchGroups(currentFilters);
+        fetchStats();
+      }
+    };
+    
+    const handleGroupRestored = () => {
+      console.log('📢 Real-time: Group restored, refreshing...');
+      if (isMountedRef.current) {
+        fetchGroups(currentFilters);
+        fetchStats();
+      }
+    };
+    
+    const handleGroupAdminAction = () => {
+      console.log('📢 Real-time: Group admin action, refreshing...');
+      if (isMountedRef.current) {
+        fetchGroups(currentFilters);
+        fetchStats();
+      }
+    };
+    
+    adminSocket.on('group:suspended', handleGroupSuspended);
+    adminSocket.on('group:deleted', handleGroupDeleted);
+    adminSocket.on('group:restored', handleGroupRestored);
+    adminSocket.on('group:admin_action', handleGroupAdminAction);
+    
+    return () => {
+      adminSocket.off('group:suspended', handleGroupSuspended);
+      adminSocket.off('group:deleted', handleGroupDeleted);
+      adminSocket.off('group:restored', handleGroupRestored);
+      adminSocket.off('group:admin_action', handleGroupAdminAction);
+    };
+  }, [fetchGroups, fetchStats, currentFilters]);
 
   console.log('📊 [useAdminGroups] Current state:', {
     groupsCount: groups.length,
@@ -232,7 +311,7 @@ const getGroupById = useCallback(async (groupId: string): Promise<GroupResponse>
     groups,
     loading,
     error,
-    stats,
+    stats, 
     pagination,
     actionLoading,
     fetchGroups,

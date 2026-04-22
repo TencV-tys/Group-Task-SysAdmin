@@ -1,4 +1,4 @@
-// layouts/AdminSidebar.tsx - COMPLETELY FIXED (no warnings)
+// layouts/AdminSidebar.tsx - FIXED (removed unused getBadgeType)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -16,12 +16,16 @@ import {
   faFlag,
   faHistory,
   faLayerGroup,
+  faExclamationTriangle,
+  faEnvelope,
+  faMessage,
 } from '@fortawesome/free-solid-svg-icons';
 import { useAdminAuth } from '../hooks/useAdminAuth';
 import { useAdminSocket } from '../contexts/AdminSocketContext';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
 import { AdminNotificationsService } from '../services/admin.notifications.service';
 import { AdminReportsService } from '../services/admin.report.services';
+import { AdminGroupsService } from '../services/admin.groups.service';
 import './styles/AdminSidebar.css';
 
 interface SidebarProps {
@@ -38,6 +42,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   const [feedbackCount, setFeedbackCount] = useState<number>(0);
   const [notificationCount, setNotificationCount] = useState<number>(0);
   const [reportCount, setReportCount] = useState<number>(0);
+  const [groupsWithReportsCount, setGroupsWithReportsCount] = useState<number>(0);
   
   const isMountedRef = useRef(true);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -50,10 +55,11 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     console.log('📊 [SIDEBAR] Fetching all counts...');
     
     try {
-      const [statsResult, unreadResult, reportsResult] = await Promise.allSettled([
+      const [statsResult, unreadResult, reportsResult, groupsResult] = await Promise.allSettled([
         AdminFeedbackService.getFeedbackStats(),
         AdminNotificationsService.getUnreadCount(),
-        AdminReportsService.getReports({ status: 'PENDING', limit: 1 })
+        AdminReportsService.getReports({ status: 'PENDING', limit: 1 }),
+        AdminGroupsService.getGroups({ hasReports: true, limit: 1 })
       ]);
 
       if (!isMountedRef.current) return;
@@ -72,6 +78,11 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       if (reportsResult.status === 'fulfilled' && reportsResult.value.success && reportsResult.value.pagination) {
         console.log(`📊 [SIDEBAR] Report count: ${reportsResult.value.pagination.total}`);
         setReportCount(reportsResult.value.pagination.total);
+      }
+
+      if (groupsResult.status === 'fulfilled' && groupsResult.value.success && groupsResult.value.pagination) {
+        console.log(`📊 [SIDEBAR] Groups with reports count: ${groupsResult.value.pagination.total}`);
+        setGroupsWithReportsCount(groupsResult.value.pagination.total);
       }
     } catch (error) {
       console.error('❌ [SIDEBAR] Failed to fetch counts:', error);
@@ -113,7 +124,18 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     }
   }, []);
 
-  // ========== INITIAL LOAD - FIXED (no setState warning) ==========
+  const refreshGroupsWithReportsCount = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
+    console.log('🔄 [SIDEBAR] Refreshing groups with reports count...');
+    const result = await AdminGroupsService.getGroups({ hasReports: true, limit: 1 });
+    if (isMountedRef.current && result.success && result.pagination) {
+      console.log(`📊 [SIDEBAR] New groups with reports count: ${result.pagination.total}`);
+      setGroupsWithReportsCount(result.pagination.total);
+    }
+  }, []);
+
+  // ========== INITIAL LOAD ==========
   useEffect(() => {
     let isActive = true;
     
@@ -180,11 +202,36 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     const unsubscribeReportsBulkUpdated = subscribe('reports:bulk-updated', () => {
       refreshReportCount();
     });
-   const unsubscribeUserCreated = subscribe('feedback:user:created', (data) => {
-  console.log('📢 [SIDEBAR] User created feedback event (fallback):', data);
-  refreshFeedbackCount();
-});
+    
+    const unsubscribeUserCreated = subscribe('feedback:user:created', (data) => {
+      console.log('📢 [SIDEBAR] User created feedback event (fallback):', data);
+      refreshFeedbackCount();
+    });
 
+    const unsubscribeGroupReportCountUpdated = subscribe('group:report_count_updated', () => {
+      console.log('📢 [SIDEBAR] Group report count updated, refreshing groups with reports count...');
+      refreshGroupsWithReportsCount();
+    });
+
+    const unsubscribeGroupDeleted = subscribe('group:deleted', () => {
+      console.log('📢 [SIDEBAR] Group deleted, refreshing groups with reports count...');
+      refreshGroupsWithReportsCount();
+    });
+
+    const unsubscribeGroupSuspended = subscribe('group:suspended', () => {
+      console.log('📢 [SIDEBAR] Group suspended, refreshing groups with reports count...');
+      refreshGroupsWithReportsCount();
+    });
+
+    const unsubscribeGroupRestored = subscribe('group:restored', () => {
+      console.log('📢 [SIDEBAR] Group restored, refreshing groups with reports count...');
+      refreshGroupsWithReportsCount();
+    });
+
+    const unsubscribeGroupAdminAction = subscribe('group:admin_action', () => {
+      console.log('📢 [SIDEBAR] Group admin action, refreshing groups with reports count...');
+      refreshGroupsWithReportsCount();
+    });
 
     const handleVisibilityChange = () => {
       if (!document.hidden && isMountedRef.current) {
@@ -195,7 +242,6 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
      
     document.addEventListener('visibilitychange', handleVisibilityChange);
     
-    // Periodic refresh fallback
     const intervalId = setInterval(() => {
       if (isMountedRef.current) {
         console.log('⏰ [SIDEBAR] Periodic refresh...');
@@ -203,7 +249,6 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       }
     }, 30000);
     
-    // ✅ FIXED: Copy ref value to variable for cleanup
     const timeoutId = refreshTimeoutRef.current;
     
     return () => {
@@ -212,7 +257,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       unsubscribeFeedbackStatus();
       unsubscribeFeedbackDeleted();
       unsubscribeFeedbackNew();
-       unsubscribeUserCreated();
+      unsubscribeUserCreated();
       unsubscribeFeedbackUpdated();
       unsubscribeNotificationNew();
       unsubscribeNotificationRead();
@@ -221,41 +266,40 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       unsubscribeReportStatus();
       unsubscribeReportDeleted();
       unsubscribeReportsBulkUpdated();
+      unsubscribeGroupReportCountUpdated();
+      unsubscribeGroupDeleted();
+      unsubscribeGroupSuspended();
+      unsubscribeGroupRestored();
+      unsubscribeGroupAdminAction();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearInterval(intervalId);
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
     };
-  }, [subscribe, refreshFeedbackCount, refreshNotificationCount, refreshReportCount, fetchAllCounts]);
+  }, [subscribe, refreshFeedbackCount, refreshNotificationCount, refreshReportCount, refreshGroupsWithReportsCount, fetchAllCounts]);
 
-
-
-// ========== DEBUG: Log ALL socket events ==========
-useEffect(() => {
-  // Create a debug subscription that logs everything
-  const debugUnsubscribe = subscribe('*', (data) => {
-    console.log('🔍🔍🔍 [SIDEBAR] RAW SOCKET EVENT:', data);
+  // ========== DEBUG: Log ALL socket events ==========
+  useEffect(() => {
+    const debugUnsubscribe = subscribe('*', (data) => {
+      console.log('🔍🔍🔍 [SIDEBAR] RAW SOCKET EVENT:', data);
+      if (data && typeof data === 'object') {
+        console.log('Event data:', JSON.stringify(data, null, 2));
+      }
+    });
     
-    // Check if data has event info
-    if (data && typeof data === 'object') {
-      console.log('Event data:', JSON.stringify(data, null, 2));
-    }
-  });
-  
-  return () => {
-    debugUnsubscribe();
-  };
-}, [subscribe]);
+    return () => {
+      debugUnsubscribe();
+    };
+  }, [subscribe]);
 
-useEffect(() => {
-  console.log('🟢 [SIDEBAR] MOUNTED');
-  return () => {
-    console.log('🔴 [SIDEBAR] UNMOUNTED');
-  };
-}, []);
+  useEffect(() => {
+    console.log('🟢 [SIDEBAR] MOUNTED');
+    return () => {
+      console.log('🔴 [SIDEBAR] UNMOUNTED');
+    };
+  }, []);
 
-  
   // ========== HELPER FUNCTIONS ==========
   const isActive = (path: string) => {
     return location.pathname === path || location.pathname.startsWith(path + '/');
@@ -274,29 +318,64 @@ useEffect(() => {
     return role.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
   };
 
+  // ✅ Define menu items with their specific badge types
   const menuItems = [
-    { path: '/admin/dashboard', icon: faChartPie, label: 'Dashboard', badge: null },
-    { path: '/admin/users', icon: faUsers, label: 'Manage Users', badge: null },
-    { path: '/admin/groups', icon: faLayerGroup, label: 'Manage Groups', badge: null },
+    { 
+      path: '/admin/dashboard', 
+      icon: faChartPie, 
+      label: 'Dashboard', 
+      getCount: () => null, 
+      badgeType: 'default',
+      warningIcon: null
+    },
+    { 
+      path: '/admin/users', 
+      icon: faUsers, 
+      label: 'Manage Users', 
+      getCount: () => null, 
+      badgeType: 'default',
+      warningIcon: null
+    },
+    { 
+      path: '/admin/groups', 
+      icon: faLayerGroup, 
+      label: 'Manage Groups', 
+      getCount: () => groupsWithReportsCount,
+      badgeType: 'warning',
+      warningIcon: faExclamationTriangle
+    },
     {
       path: '/admin/feedback',
       icon: faComment,
       label: 'Feedback',
-      badge: feedbackCount > 0 ? (feedbackCount > 99 ? '99+' : feedbackCount.toString()) : null
+      getCount: () => feedbackCount,
+      badgeType: 'feedback',
+      warningIcon: faMessage
     },
     {
       path: '/admin/notifications',
       icon: faBell,
       label: 'Notifications',
-      badge: notificationCount > 0 ? (notificationCount > 99 ? '99+' : notificationCount.toString()) : null
+      getCount: () => notificationCount,
+      badgeType: 'info',
+      warningIcon: faEnvelope
     },
     {
       path: '/admin/reports',
       icon: faFlag,
       label: 'Reports',
-      badge: reportCount > 0 ? (reportCount > 99 ? '99+' : reportCount.toString()) : null
+      getCount: () => reportCount,
+      badgeType: 'danger',
+      warningIcon: faExclamationTriangle
     },
-    { path: '/admin/audit', icon: faHistory, label: 'Audit Logs', badge: null }
+    { 
+      path: '/admin/audit', 
+      icon: faHistory, 
+      label: 'Audit Logs', 
+      getCount: () => null, 
+      badgeType: 'default',
+      warningIcon: null
+    }
   ];
 
   return (
@@ -327,21 +406,37 @@ useEffect(() => {
         </div>
 
         <nav className="sidebar-nav">
-          {menuItems.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`nav-item ${isActive(item.path) ? 'active' : ''}`}
-            >
-              <span className="nav-icon">
-                <FontAwesomeIcon icon={item.icon} />
-              </span>
-              {!collapsed && <span className="nav-label">{item.label}</span>}
-              {!collapsed && item.badge && (
-                <span className="nav-badge">{item.badge}</span>
-              )}
-            </Link>
-          ))}
+          {menuItems.map((item) => {
+            const count = item.getCount ? item.getCount() : null;
+            const hasCount = count !== null && count > 0;
+            const displayCount = hasCount ? (count > 99 ? '99+' : count.toString()) : null;
+            const badgeType = item.badgeType;
+            
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`nav-item ${isActive(item.path) ? 'active' : ''}`}
+                data-tooltip={collapsed ? item.label : undefined}
+              >
+                <span className="nav-icon">
+                  <FontAwesomeIcon icon={item.icon} />
+                </span>
+                {!collapsed && <span className="nav-label">{item.label}</span>}
+                {!collapsed && hasCount && (
+                  <span className={`nav-badge ${badgeType}`}>
+                    {displayCount}
+                  </span>
+                )}
+                {/* Show warning icon for ALL items with counts when collapsed */}
+                {collapsed && hasCount && item.warningIcon && (
+                  <span className={`collapsed-warning-icon ${badgeType}`}>
+                    <FontAwesomeIcon icon={item.warningIcon} size="xs" />
+                  </span>
+                )}
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="sidebar-footer">

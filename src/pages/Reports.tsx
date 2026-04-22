@@ -1,4 +1,4 @@
-// pages/Reports.tsx - FULLY UPDATED WITH PROPER REFRESH
+// pages/Reports.tsx - HARD DELETE ONLY (No soft delete option)
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Report, ReportFilters } from '../services/admin.report.services';
@@ -23,7 +23,6 @@ import {
   faUsers,
   faCalendarAlt,
   faTrash,
-  faTrashAlt,
 } from '@fortawesome/free-solid-svg-icons';
 import './styles/Reports.css';
 
@@ -157,13 +156,10 @@ const Reports: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<{ id: string; title: string; message: string } | null>(null);
   const [hasNewReport, setHasNewReport] = useState(false);
   
-  // Delete state
+  // Delete state - HARD DELETE ONLY
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
-  const [hardDelete, setHardDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [bulkDeleteMode, setBulkDeleteMode] = useState(false);
-  const [selectedReports, setSelectedReports] = useState<Set<string>>(new Set());
   
   const isMountedRef = useRef(true);
   const toastTimeoutRef = useRef<number | undefined>(undefined);
@@ -285,14 +281,14 @@ const Reports: React.FC = () => {
     
     const handleReportDeleted = (...args: unknown[]) => {
       const data = args[0] as ReportDeletedSocketData;
-      console.log('📢 Real-time: Report deleted', data);
+      console.log('📢 Real-time: Report HARD DELETED', data);
       
       refreshAllData();
       
       setToastMessage({
         id: data.reportId,
-        title: '🗑️ Report Deleted',
-        message: `Report #${data.reportId.slice(0, 8)} was deleted by ${data.deletedBy}`
+        title: '🗑️ Report Permanently Deleted',
+        message: `Report #${data.reportId.slice(0, 8)} was permanently deleted by ${data.deletedBy}`
       });
       
       setTimeout(() => setToastMessage(null), 3000);
@@ -377,16 +373,12 @@ const Reports: React.FC = () => {
     const newFilters = { ...filters, status, page: 1 };
     setFilters(newFilters);
     setHasNewReport(false);
-    setBulkDeleteMode(false);
-    setSelectedReports(new Set());
   };
 
   const handleStatClick = (status: string) => {
     const newFilters = { ...filters, status, page: 1 };
     setFilters(newFilters);
     setHasNewReport(false);
-    setBulkDeleteMode(false);
-    setSelectedReports(new Set());
   };
 
   const handlePageChange = (newPage: number) => {
@@ -395,9 +387,7 @@ const Reports: React.FC = () => {
   };
 
   const handleRowClick = (report: Report) => {
-    if (!bulkDeleteMode) {
-      handleViewDetails(report);
-    }
+    handleViewDetails(report);
   };
 
   const handleViewDetails = (report: Report) => {
@@ -414,36 +404,10 @@ const Reports: React.FC = () => {
     setShowUpdateModal(true);
   };
 
-  // ===== DELETE HANDLERS =====
-  const handleDeleteClick = (e: React.MouseEvent, report: Report) => {
-    e.stopPropagation();
+  // ===== DELETE HANDLER - HARD DELETE ONLY (no soft delete option) =====
+  const handleDeleteClick = (report: Report) => {
     setReportToDelete(report);
-    setHardDelete(false);
     setShowDeleteModal(true);
-  };
-
-  const toggleBulkDeleteMode = () => {
-    setBulkDeleteMode(!bulkDeleteMode);
-    setSelectedReports(new Set());
-  };
-
-  const handleSelectReport = (reportId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const newSelected = new Set(selectedReports);
-    if (newSelected.has(reportId)) {
-      newSelected.delete(reportId);
-    } else {
-      newSelected.add(reportId);
-    }
-    setSelectedReports(newSelected);
-  };
-
-  const handleSelectAll = () => {
-    if (selectedReports.size === reports.length) {
-      setSelectedReports(new Set());
-    } else {
-      setSelectedReports(new Set(reports.map(r => r.id)));
-    }
   };
 
   const handleConfirmDelete = async () => {
@@ -451,7 +415,8 @@ const Reports: React.FC = () => {
     
     setDeleting(true);
     try {
-      const result = await AdminReportsService.deleteReport(reportToDelete.id, hardDelete);
+      // HARD DELETE ONLY - always pass true
+      const result = await AdminReportsService.deleteReport(reportToDelete.id, true);
       
       if (result.success) {
         setShowDeleteModal(false);
@@ -463,55 +428,24 @@ const Reports: React.FC = () => {
         
         setToastMessage({
           id: Date.now().toString(),
-          title: hardDelete ? '🗑️ Report Permanently Deleted' : '📁 Report Deleted',
-          message: `Report #${reportToDelete.id.slice(0, 8)} has been ${hardDelete ? 'permanently deleted' : 'moved to trash'}`
+          title: '🗑️ Report Permanently Deleted',
+          message: `Report #${reportToDelete.id.slice(0, 8)} has been permanently deleted`
         });
         
         setTimeout(() => setToastMessage(null), 3000);
         
-        // Clear selection
-        setSelectedReports(new Set());
-        if (bulkDeleteMode) setBulkDeleteMode(false);
+        // Close details modal if open
+        if (selectedReport?.id === reportToDelete.id) {
+          setShowDetailsModal(false);
+          setSelectedReport(null);
+          setSelectedRowId(null);
+        }
         
       } else {
         alert(result.message || 'Failed to delete report');
       }
     } catch (err) {
       console.error('Delete error:', err);
-      alert('Network error. Please try again.');
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const handleConfirmBulkDelete = async () => {
-    if (selectedReports.size === 0) return;
-    
-    setDeleting(true);
-    try {
-      const result = await AdminReportsService.bulkDeleteReports(Array.from(selectedReports), hardDelete);
-      
-      if (result.success) {
-        setBulkDeleteMode(false);
-        setSelectedReports(new Set());
-        
-        setRefreshing(true);
-        await refreshAllData();
-        setRefreshing(false);
-        
-        setToastMessage({
-          id: Date.now().toString(),
-          title: hardDelete ? '🗑️ Reports Permanently Deleted' : '📁 Reports Deleted',
-          message: `${result.results?.successCount || 0} reports have been ${hardDelete ? 'permanently deleted' : 'moved to trash'}`
-        });
-        
-        setTimeout(() => setToastMessage(null), 3000);
-        
-      } else {
-        alert(result.message || 'Failed to delete reports');
-      }
-    } catch (err) {
-      console.error('Bulk delete error:', err);
       alert('Network error. Please try again.');
     } finally {
       setDeleting(false);
@@ -544,7 +478,6 @@ const Reports: React.FC = () => {
         
         setTimeout(() => setToastMessage(null), 3000);
         
-        // Clear selected report
         setSelectedReport(null);
         setSelectedRowId(null);
         setUpdateStatus('');
@@ -679,8 +612,6 @@ const Reports: React.FC = () => {
     };
     setFilters(newFilters);
     setHasNewReport(false);
-    setBulkDeleteMode(false);
-    setSelectedReports(new Set());
   };
 
   if (loading && !refreshing && reports.length === 0) {
@@ -801,26 +732,6 @@ const Reports: React.FC = () => {
         </div>
       )}
 
-      {/* Bulk Delete Bar */}
-      <div className="bulk-delete-bar">
-        <button 
-          className={`bulk-mode-btn ${bulkDeleteMode ? 'active' : ''}`}
-          onClick={toggleBulkDeleteMode}
-        >
-          <FontAwesomeIcon icon={faTrashAlt} />
-          {bulkDeleteMode ? 'Cancel' : 'Bulk Delete'}
-        </button>
-        
-        {bulkDeleteMode && selectedReports.size > 0 && (
-          <button 
-            className="bulk-delete-confirm"
-            onClick={() => setShowDeleteModal(true)}
-          >
-            Delete Selected ({selectedReports.size})
-          </button>
-        )}
-      </div>
-
       {/* Filters */}
       <div className="filters-bar">
         <div className="filter-group">
@@ -883,16 +794,6 @@ const Reports: React.FC = () => {
             <table className="reports-table">
               <thead>
                 <tr>
-                  {bulkDeleteMode && (
-                    <th style={{ width: '40px' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedReports.size === reports.length && reports.length > 0}
-                        onChange={handleSelectAll}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </th>
-                  )}
                   <th>Status</th>
                   <th>Type</th>
                   <th>Group</th>
@@ -907,18 +808,8 @@ const Reports: React.FC = () => {
                   <tr 
                     key={`${report.id}-${report.status}-${index}`} 
                     onClick={() => handleRowClick(report)}
-                    className={`report-row ${selectedRowId === report.id ? 'selected' : ''} ${bulkDeleteMode ? 'bulk-mode' : ''}`}
+                    className={`report-row ${selectedRowId === report.id ? 'selected' : ''}`}
                   >
-                    {bulkDeleteMode && (
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={selectedReports.has(report.id)}
-                          onChange={() => {}}
-                          onClick={(e) => handleSelectReport(report.id, e)}
-                        />
-                       </td>
-                    )}
                     <td>
                       <span className={`status-badge ${getStatusBadgeClass(report.status)}`}>
                         <FontAwesomeIcon icon={getStatusIcon(report.status)} />
@@ -991,16 +882,7 @@ const Reports: React.FC = () => {
                         >
                           <FontAwesomeIcon icon={faCheck} />
                         </button>
-                        {/* Delete button - ONLY show when status is DISMISSED */}
-                        {report.status === 'DISMISSED' && (
-                          <button 
-                            className="action-btn delete"
-                            onClick={(e) => handleDeleteClick(e, report)}
-                            title="Delete Report"
-                          >
-                            <FontAwesomeIcon icon={faTrash} />
-                          </button>
-                        )}
+                        {/* NO DELETE BUTTON IN TABLE ROW - Only in modal for DISMISSED */}
                       </div>
                     </td>
                   </tr>
@@ -1034,7 +916,7 @@ const Reports: React.FC = () => {
         </>
       )}
 
-      {/* Details Modal */}
+      {/* Details Modal - WITH DELETE BUTTON (only shows if status is DISMISSED) */}
       {showDetailsModal && selectedReport && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-content report-details-modal" onClick={(e) => e.stopPropagation()}>
@@ -1144,6 +1026,20 @@ const Reports: React.FC = () => {
               >
                 Update Status
               </button>
+              {/* DELETE BUTTON - ONLY SHOW WHEN STATUS IS DISMISSED - HARD DELETE ONLY */}
+              {selectedReport.status === 'DISMISSED' && (
+                <button 
+                  className="modal-confirm delete"
+                  onClick={() => {
+                    closeModal();
+                    setTimeout(() => {
+                      handleDeleteClick(selectedReport);
+                    }, 300);
+                  }}
+                >
+                  <FontAwesomeIcon icon={faTrash} /> Permanently Delete
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1216,21 +1112,24 @@ const Reports: React.FC = () => {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteModal && (reportToDelete || selectedReports.size > 0) && (
+      {/* Delete Confirmation Modal - HARD DELETE ONLY (no options, just warning) */}
+      {showDeleteModal && reportToDelete && (
         <div className="modal-overlay" onClick={() => setShowDeleteModal(false)}>
           <div className="modal-content delete-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>
                 <FontAwesomeIcon icon={faExclamationTriangle} style={{ color: '#fa5252', marginRight: '8px' }} />
-                Delete {selectedReports.size > 0 ? 'Reports' : 'Report'}
+                Permanently Delete Report
               </h2>
               <button className="modal-close" onClick={() => setShowDeleteModal(false)}>
                 <FontAwesomeIcon icon={faTimes} />
               </button>
             </div>
             <div className="modal-body">
-              <p>Are you sure you want to delete {selectedReports.size > 0 ? `these ${selectedReports.size} reports` : 'this report'}?</p>
+              <p className="warning-text">
+                ⚠️ <strong>Warning: This action is PERMANENT and cannot be undone!</strong>
+              </p>
+              <p>Are you sure you want to permanently delete this report?</p>
               
               {reportToDelete && (
                 <div className="report-summary">
@@ -1241,38 +1140,10 @@ const Reports: React.FC = () => {
                   <strong>Group:</strong> {reportToDelete.group?.name || 'Unknown'}
                   <br />
                   <strong>Reporter:</strong> {reportToDelete.reporter?.fullName || 'Unknown'}
-                </div>
-              )}
-              
-              {selectedReports.size > 0 && (
-                <div className="report-summary">
-                  <strong>Selected Reports:</strong> {selectedReports.size} reports
                   <br />
-                  <strong>Report IDs:</strong> {Array.from(selectedReports).slice(0, 3).map(id => id.slice(0, 8)).join(', ')}
-                  {selectedReports.size > 3 && ` +${selectedReports.size - 3} more`}
+                  <strong>Created:</strong> {formatDate(reportToDelete.createdAt)}
                 </div>
               )}
-              
-              <div className="delete-options">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={hardDelete}
-                    onChange={(e) => setHardDelete(e.target.checked)}
-                  />
-                  <span>Permanently delete (cannot be undone)</span>
-                </label>
-                {!hardDelete && (
-                  <p className="soft-delete-hint">
-                    Soft delete will mark the report as deleted and notify the reporter.
-                  </p>
-                )}
-                {hardDelete && (
-                  <p className="hard-delete-hint">
-                    ⚠️ Warning: This action is permanent and cannot be undone!
-                  </p>
-                )}
-              </div>
             </div>
             <div className="modal-footer">
               <button className="modal-cancel" onClick={() => setShowDeleteModal(false)}>
@@ -1280,10 +1151,10 @@ const Reports: React.FC = () => {
               </button>
               <button 
                 className="modal-confirm delete"
-                onClick={selectedReports.size > 0 ? handleConfirmBulkDelete : handleConfirmDelete}
+                onClick={handleConfirmDelete}
                 disabled={deleting}
               >
-                {deleting ? 'Deleting...' : (selectedReports.size > 0 ? `Delete ${selectedReports.size} Reports` : 'Delete Report')}
+                {deleting ? 'Deleting...' : 'Yes, Permanently Delete'}
               </button>
             </div>
           </div>

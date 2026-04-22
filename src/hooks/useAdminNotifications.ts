@@ -1,7 +1,7 @@
-// hooks/useAdminNotifications.ts - FIXED with proper args usage
+// hooks/useAdminNotifications.ts - CORRECT for frontend service
 
 import { useCallback, useState, useEffect, useRef } from 'react';
-import { AdminNotificationsService } from '../services/admin.notifications.service';
+import { AdminNotificationsService } from '../services/admin.notifications.service'; // ← Frontend service
 import { adminSocket } from '../services/adminSocket';
 import type { AdminNotification, NotificationFilters } from '../services/admin.notifications.service';
 
@@ -34,13 +34,14 @@ export function useAdminNotifications() {
     }
   }, []);
 
-  // Fetch notifications function
+  // ✅ Fetch notifications - NO adminId needed (frontend service)
   const fetchNotifications = useCallback(async (filters: NotificationFilters) => {
     console.log('📥 Fetching notifications with filters:', filters);
     
     setLoading(true);
     try {
       const result = await AdminNotificationsService.getNotifications(filters);
+      //                                                      ^^^^^^^ Only filters, no adminId
       
       if (result.success && result.data) {
         setNotifications(result.data.notifications);
@@ -58,10 +59,11 @@ export function useAdminNotifications() {
     }
   }, []);
 
-  // Fetch unread count separately
+  // ✅ Fetch unread count - NO adminId needed
   const fetchUnreadCount = useCallback(async () => {
     try {
       const result = await AdminNotificationsService.getUnreadCount();
+      //                                                      ^^^^^^^ No parameters
       if (result.success && result.data) {
         setUnreadCount(result.data.count);
       }
@@ -72,7 +74,6 @@ export function useAdminNotifications() {
 
   // ========== REAL-TIME SOCKET LISTENERS ==========
   useEffect(() => {
-    // ✅ All handlers properly use args parameter
     const handleNewNotification = (...args: unknown[]) => {
       const notification = args[0] as AdminNotification;
       console.log('📢 Real-time: New admin notification', notification);
@@ -110,7 +111,6 @@ export function useAdminNotifications() {
     };
     
     const handleNotificationReadAll = (...args: unknown[]) => {
-      // args is used even if we don't need the data - log it to show usage
       console.log('📢 Real-time: All notifications marked as read', args);
       
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
@@ -150,13 +150,12 @@ export function useAdminNotifications() {
     };
     
     const handleNotificationCountRefresh = (...args: unknown[]) => {
-      // args is used even if we don't need the data - log it to show usage
       console.log('📢 Real-time: Refresh notification count', args);
       fetchUnreadCount();
       fetchNotifications(currentFilters);
     };
     
-    // Register listeners with correct event names
+    // Register listeners
     adminSocket.on('notification:new', handleNewNotification);
     adminSocket.on('notification:read', handleNotificationRead);
     adminSocket.on('notification:read:all', handleNotificationReadAll);
@@ -183,7 +182,7 @@ export function useAdminNotifications() {
     }
   }, []);
 
-  // Mark as read
+  // ✅ Mark as read - NO adminId needed
   const markAsRead = useCallback(async (notificationId: string) => {
     console.log('📥 markAsRead:', notificationId);
     
@@ -194,6 +193,7 @@ export function useAdminNotifications() {
 
     try {
       const result = await AdminNotificationsService.markAsRead(notificationId);
+
       
       if (!result.success) {
         await fetchNotifications(currentFilters);
@@ -206,7 +206,7 @@ export function useAdminNotifications() {
     }
   }, [currentFilters, fetchNotifications, fetchUnreadCount]);
 
-  // Mark all as read
+  // ✅ Mark all as read - NO adminId needed
   const markAllAsRead = useCallback(async () => {
     const previousUnreadCount = unreadCount;
     setUnreadCount(0);
@@ -214,6 +214,7 @@ export function useAdminNotifications() {
 
     try {
       const result = await AdminNotificationsService.markAllAsRead();
+      //                                                      ^^^^^^^ No parameters
       
       if (!result.success) {
         await fetchNotifications(currentFilters);
@@ -227,7 +228,7 @@ export function useAdminNotifications() {
     }
   }, [unreadCount, currentFilters, fetchNotifications, fetchUnreadCount]);
 
-  // Delete notification
+  // ✅ Delete notification - NO adminId needed
   const deleteNotification = useCallback(async (notificationId: string) => {
     const deletedNotification = notifications.find(n => n.id === notificationId);
     setNotifications(prev => prev.filter(n => n.id !== notificationId));
@@ -238,7 +239,7 @@ export function useAdminNotifications() {
 
     try {
       const result = await AdminNotificationsService.deleteNotification(notificationId);
-      
+  
       if (!result.success) {
         await fetchNotifications(currentFilters);
         await fetchUnreadCount();
@@ -250,12 +251,13 @@ export function useAdminNotifications() {
     }
   }, [notifications, currentFilters, fetchNotifications, fetchUnreadCount]);
 
-  // Delete all read
+  // ✅ Delete all read - NO adminId needed
   const deleteAllRead = useCallback(async () => {
     setNotifications(prev => prev.filter(n => !n.read));
 
     try {
       const result = await AdminNotificationsService.deleteAllRead();
+                                       
       
       if (!result.success) {
         await fetchNotifications(currentFilters);
@@ -273,7 +275,7 @@ export function useAdminNotifications() {
     return fetchNotifications(currentFilters);
   }, [fetchNotifications, currentFilters]);
 
-  // Update filters and refetch
+  // Update filters
   const updateFilters = useCallback((filters: NotificationFilters) => {
     console.log('🔄 Updating filters:', filters);
     setCurrentFilters(prev => {
