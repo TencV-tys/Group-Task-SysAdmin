@@ -1,4 +1,4 @@
-// services/adminSocket.ts - FIXED (adds onAny)
+// services/adminSocket.ts - FULLY UPDATED WITH CONSOLE LOGS
 
 import { io, Socket } from 'socket.io-client';
 import { getAdminAccessToken } from './admin.auth.service';
@@ -13,18 +13,32 @@ class AdminSocketService {
   private connectionPromise: Promise<void> | null = null;
 
   async connect(token?: string): Promise<void> {
-    if (this.socket?.connected) return;
-    if (this.connectionPromise) return this.connectionPromise;
+    console.log('🔌 [AdminSocket] connect() called');
+    
+    if (this.socket?.connected) {
+      console.log('✅ [AdminSocket] Already connected, socket ID:', this.socket.id);
+      return;
+    }
+    
+    if (this.connectionPromise) {
+      console.log('⏳ [AdminSocket] Connection already in progress, waiting...');
+      return this.connectionPromise;
+    }
 
     this.connectionPromise = new Promise((resolve, reject) => {
       const setupConnection = async () => {
         try {
           const accessToken = token || await getAdminAccessToken();
+          console.log('🔌 [AdminSocket] Token obtained:', accessToken ? 'YES' : 'NO');
+          
           if (!accessToken) {
+            console.error('❌ [AdminSocket] No admin token available');
             reject(new Error('No admin token'));
             return;
           }
 
+          console.log(`🔌 [AdminSocket] Connecting to: ${API_URL}`);
+          
           this.socket = io(API_URL, {
             auth: { token: accessToken },
             transports: ['websocket'],
@@ -35,37 +49,59 @@ class AdminSocketService {
 
           const timeoutId = setTimeout(() => {
             if (!this.socket?.connected) {
+              console.error('❌ [AdminSocket] Connection timeout after 10 seconds');
               this.connectionPromise = null;
               reject(new Error('Connection timeout'));
             }
           }, 10000);
 
           this.socket.on('connect', () => {
+            console.log('✅✅✅ [AdminSocket] CONNECTED SUCCESSFULLY! ✅✅✅');
+            console.log(`📡 [AdminSocket] Socket ID: ${this.socket?.id}`);
+            console.log(`📡 [AdminSocket] Transport: ${this.socket?.io.engine.transport.name}`);
             clearTimeout(timeoutId);
             this.socket?.emit('admin:register');
+            console.log('📤 [AdminSocket] Emitted admin:register');
             this.connectionPromise = null;
             resolve();
           });
 
           this.socket.on('connect_error', (error) => {
+            console.error(`❌ [AdminSocket] Connection error: ${error.message}`);
             clearTimeout(timeoutId);
             this.connectionPromise = null;
             reject(error);
           });
 
           this.socket.on('disconnect', (reason) => {
-            console.log('🔌 Admin socket disconnected:', reason);
+            console.log(`🔌 [AdminSocket] Disconnected. Reason: ${reason}`);
           });
 
-          // Keep per-event listeners working (used by useAdminFeedback hook)
+          this.socket.on('reconnect', (attemptNumber) => {
+            console.log(`🔄 [AdminSocket] Reconnected after ${attemptNumber} attempts`);
+          });
+
+          // Log ALL incoming events
           this.socket.onAny((event: string, ...args: unknown[]) => {
+            console.log(`📡📡📡 [AdminSocket] RAW EVENT RECEIVED: "${event}"`, args[0]);
+            
             const callbacks = this.listeners.get(event);
-            if (callbacks) {
-              callbacks.forEach(callback => callback(...args));
+            if (callbacks && callbacks.length > 0) {
+              console.log(`📡 [AdminSocket] → Forwarding to ${callbacks.length} listener(s) for "${event}"`);
+              callbacks.forEach(callback => {
+                try {
+                  callback(...args);
+                } catch (err) {
+                  console.error(`❌ [AdminSocket] Error in callback for "${event}":`, err);
+                }
+              });
+            } else {
+              console.log(`📡 [AdminSocket] → No listeners registered for "${event}"`);
             }
           });
 
         } catch (error) {
+          console.error('❌ [AdminSocket] Setup error:', error);
           this.connectionPromise = null;
           reject(error);
         }
@@ -79,24 +115,32 @@ class AdminSocketService {
 
   emit(event: string, ...args: unknown[]): void {
     if (this.socket?.connected) {
+      console.log(`📤 [AdminSocket] Emitting: "${event}"`, args[0]);
       this.socket.emit(event, ...args);
     } else {
-      console.warn(`⚠️ [Socket] Not connected, cannot emit: ${event}`);
+      console.warn(`⚠️ [AdminSocket] Not connected, cannot emit: "${event}"`);
     }
   }
 
   disconnect(): void {
+    console.log('🔌 [AdminSocket] Disconnecting...');
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
     }
     this.connectionPromise = null;
+    console.log('✅ [AdminSocket] Disconnected');
   }
 
   on(event: string, callback: EventCallback): void {
-    if (!this.listeners.has(event)) this.listeners.set(event, []);
+    console.log(`🎧 [AdminSocket] Registering listener for "${event}"`);
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, []);
+    }
     this.listeners.get(event)!.push(callback);
-    if (this.socket) this.socket.on(event, callback);
+    if (this.socket) {
+      this.socket.on(event, callback);
+    }
   }
 
   off(event: string, callback?: EventCallback): void {
@@ -113,20 +157,36 @@ class AdminSocketService {
     }
   }
 
-  // FIX: used by AdminSocketContext to register a single catch-all handler
   onAny(callback: (event: string, ...args: unknown[]) => void): void {
     if (this.socket) {
       this.socket.onAny(callback);
+      console.log('🎧 [AdminSocket] Registered catch-all onAny handler');
     } else {
-      console.warn('[Socket] onAny called before socket initialized');
+      console.warn('⚠️ [AdminSocket] onAny called before socket initialized');
     }
   }
 
-  get isConnected(): boolean { return this.socket?.connected || false; }
-  get socketId(): string | undefined { return this.socket?.id; }
+  get isConnected(): boolean { 
+    const connected = this.socket?.connected || false;
+    console.log(`🔌 [AdminSocket] isConnected check: ${connected}`);
+    return connected;
+  }
+  
+  get socketId(): string | undefined { 
+    return this.socket?.id; 
+  }
 }
 
 export const adminSocket = new AdminSocketService();
-export const connectAdminSocket = async (): Promise<void> => adminSocket.connect();
-export const disconnectAdminSocket = (): void => adminSocket.disconnect();
-export const emitAdminEvent = (event: string, ...args: unknown[]): void => adminSocket.emit(event, ...args); 
+export const connectAdminSocket = async (): Promise<void> => {
+  console.log('🔌 [connectAdminSocket] Called');
+  return adminSocket.connect();
+};
+export const disconnectAdminSocket = (): void => {
+  console.log('🔌 [disconnectAdminSocket] Called');
+  adminSocket.disconnect();
+};
+export const emitAdminEvent = (event: string, ...args: unknown[]): void => {
+  console.log(`📤 [emitAdminEvent] Emitting: "${event}"`);
+  adminSocket.emit(event, ...args);
+};

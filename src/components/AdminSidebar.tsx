@@ -279,19 +279,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     };
   }, [subscribe, refreshFeedbackCount, refreshNotificationCount, refreshReportCount, refreshGroupsWithReportsCount, fetchAllCounts]);
 
-  // ========== DEBUG: Log ALL socket events ==========
-  useEffect(() => {
-    const debugUnsubscribe = subscribe('*', (data) => {
-      console.log('🔍🔍🔍 [SIDEBAR] RAW SOCKET EVENT:', data);
-      if (data && typeof data === 'object') {
-        console.log('Event data:', JSON.stringify(data, null, 2));
-      }
-    });
-    
-    return () => {
-      debugUnsubscribe();
-    };
-  }, [subscribe]);
+
 
   useEffect(() => {
     console.log('🟢 [SIDEBAR] MOUNTED');
@@ -457,7 +445,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
               <button className="modal-close" onClick={() => setShowLogoutConfirm(false)}>
                 <FontAwesomeIcon icon={faTimes} />
               </button>
-            </div>
+            </div> 
             <div className="modal-body">
               <p>Are you sure you want to logout?</p>
             </div>
@@ -470,7 +458,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
               </button> 
             </div>
           </div>
-        </div>
+        </div> 
       )}
     </>
   );
