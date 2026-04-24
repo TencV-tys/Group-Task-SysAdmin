@@ -1,15 +1,13 @@
-// hooks/useAdminAudit.ts
-import { useState, useCallback } from 'react';
+// hooks/useAdminAudit.ts - COMPLETE FIXED VERSION (no infinite loop)
+
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { AdminAuditService } from '../services/admin.audit.service';
 import type { 
   AuditLog, 
   AuditStatisticsResponse, 
   AuditLogFilters,
-  AuditLogsResponse,
- 
 } from '../services/admin.audit.service';
 
-// Define specific types instead of any
 interface FetchLogsParams extends AuditLogFilters {
   limit: number;
   offset: number;
@@ -25,51 +23,11 @@ interface StatisticsParams {
   endDate?: string;
 }
 
-interface FetchLogsResult {
-  success: boolean;
-  data?: AuditLogsResponse;
-  message?: string;
-}
- 
-interface FetchStatisticsResult {
-  success: boolean;
-  data?: AuditStatisticsResponse['statistics'];
-  message?: string;
-}
-
-interface FetchLogByIdResult {
-  success: boolean;
-  log?: AuditLog;
-  message?: string;
-}
-
-interface UseAdminAuditReturn {
-  logs: AuditLog[];
-  loading: boolean;
-  error: string | null;
-  stats: AuditStatisticsResponse['statistics'] | null;
-  pagination: {
-    total: number;
-    page: number;
-    limit: number;
-    pages: number;
-    hasMore: boolean;
-  };
-  fetchLogs: (params?: FetchLogsParams) => Promise<FetchLogsResult>;
-  fetchStatistics: (params?: StatisticsParams) => Promise<FetchStatisticsResult>;
-   deleteLog: (id: string) => Promise<{ success: boolean; message: string }>; 
-  getLogById: (id: string) => Promise<FetchLogByIdResult>;
-  refresh: () => Promise<void>;
-  setPagination: React.Dispatch<React.SetStateAction<{
-    total: number;
-    page: number;
-    limit: number;
-    pages: number;
-    hasMore: boolean;
-  }>>;
-}
-
-export function useAdminAudit(initialLimit: number = 20): UseAdminAuditReturn {
+export function useAdminAudit(initialLimit: number = 20) {
+  const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<AuditStatisticsResponse['statistics'] | null>(null);
   const [pagination, setPagination] = useState({
     page: 1,
     limit: initialLimit,
@@ -77,19 +35,31 @@ export function useAdminAudit(initialLimit: number = 20): UseAdminAuditReturn {
     pages: 1,
     hasMore: false,
   });
-  
-  const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [stats, setStats] = useState<AuditStatisticsResponse['statistics'] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const fetchLogs = useCallback(async (params?: FetchLogsParams): Promise<FetchLogsResult> => {
+  const isMountedRef = useRef(true);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const initialLoadDoneRef = useRef(false);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // ✅ FIX: Remove setPagination from inside fetchLogs to prevent infinite loop
+  const fetchLogs = useCallback(async (params?: FetchLogsParams) => {
+    if (!isMountedRef.current) return { success: false, message: 'Unmounted' };
+    
     setLoading(true);
     setError(null);
     try {
       const result = await AdminAuditService.getLogs(params);
-      if (result.success) {
+      console.log('🔍 [useAdminAudit] Raw API response:', result);
+console.log('🔍 [useAdminAudit] Logs array length:', result.logs?.length);
+      if (isMountedRef.current && result.success) {
         setLogs(result.logs || []);
+        // ✅ Update pagination without causing re-fetch
         setPagination(prev => ({
           ...prev,
           total: result.pagination?.total || 0,
@@ -97,23 +67,26 @@ export function useAdminAudit(initialLimit: number = 20): UseAdminAuditReturn {
           pages: Math.ceil((result.pagination?.total || 0) / prev.limit),
         }));
         return { success: true, data: result };
-      } else {
+      } else if (isMountedRef.current) {
         setError(result.message || 'Failed to load logs');
         return { success: false, message: result.message };
       }
+      return { success: false, message: 'Unmounted' };
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Network error';
-      setError(errorMessage);
+      if (isMountedRef.current) setError(errorMessage);
       return { success: false, message: errorMessage };
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
     }
   }, []);
 
-  const fetchStatistics = useCallback(async (params?: StatisticsParams): Promise<FetchStatisticsResult> => {
+  const fetchStatistics = useCallback(async (params?: StatisticsParams) => {
+    if (!isMountedRef.current) return { success: false, message: 'Unmounted' };
+    
     try {
       const result = await AdminAuditService.getStatistics(params);
-      if (result.success) {
+      if (isMountedRef.current && result.success) {
         setStats(result.statistics || null);
         return { success: true, data: result.statistics };
       }
@@ -124,8 +97,9 @@ export function useAdminAudit(initialLimit: number = 20): UseAdminAuditReturn {
     }
   }, []);
 
-  const getLogById = useCallback(async (id: string): Promise<FetchLogByIdResult> => {
-    setLoading(true);
+  const getLogById = useCallback(async (id: string) => {
+    if (!isMountedRef.current) return { success: false, message: 'Unmounted' };
+    
     try {
       const result = await AdminAuditService.getLogById(id);
       if (result.success && result.log) {
@@ -135,28 +109,14 @@ export function useAdminAudit(initialLimit: number = 20): UseAdminAuditReturn {
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch log';
       return { success: false, message: errorMessage };
-    } finally {
-      setLoading(false);
     }
   }, []);
 
-  const refresh = useCallback(async (): Promise<void> => {
-    // Re-fetch with current pagination
-    const params: FetchLogsParams = {
-      limit: pagination.limit,
-      offset: (pagination.page - 1) * pagination.limit
-    };
-    await fetchLogs(params);
-    await fetchStatistics();
-  }, [pagination.page, pagination.limit, fetchLogs, fetchStatistics]);
-
-    const deleteLog = useCallback(async (logId: string): Promise<{ success: boolean; message: string }> => {
+  const deleteLog = useCallback(async (logId: string) => {
     try {
       const result = await AdminAuditService.deleteLog(logId);
-      if (result.success) {
-        // Remove the deleted log from the list
+      if (result.success && isMountedRef.current) {
         setLogs(prev => prev.filter(log => log.id !== logId));
-        // Update pagination total
         setPagination(prev => ({
           ...prev,
           total: Math.max(0, prev.total - 1)
@@ -169,6 +129,16 @@ export function useAdminAudit(initialLimit: number = 20): UseAdminAuditReturn {
     }
   }, []);
 
+  const refresh = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
+    const params: FetchLogsParams = {
+      limit: pagination.limit,
+      offset: (pagination.page - 1) * pagination.limit
+    };
+    await fetchLogs(params);
+    await fetchStatistics();
+  }, [pagination.page, pagination.limit, fetchLogs, fetchStatistics]);
 
   return {
     logs,
@@ -179,8 +149,8 @@ export function useAdminAudit(initialLimit: number = 20): UseAdminAuditReturn {
     fetchLogs,
     fetchStatistics,
     getLogById,
-      deleteLog,
+    deleteLog, 
     refresh,
     setPagination,
   };
-} 
+}

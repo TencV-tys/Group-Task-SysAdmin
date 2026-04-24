@@ -1,4 +1,4 @@
-// pages/Reports.tsx - HARD DELETE ONLY (No soft delete option)
+// pages/Reports.tsx - COMPLETE FULLY WORKING VERSION
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Report, ReportFilters } from '../services/admin.report.services';
@@ -20,7 +20,6 @@ import {
   faChevronLeft,
   faChevronRight,
   faRedoAlt,
-  faUsers,
   faCalendarAlt,
   faTrash,
 } from '@fortawesome/free-solid-svg-icons';
@@ -90,29 +89,18 @@ interface ReportDeletedSocketData {
   deletedAt: string;
 }
 
-// Safe Image Component
 const SafeImage = ({ src, className, fallbackChar }: { src: string; className: string; fallbackChar: string }) => {
   const [error, setError] = useState(false);
-  const [loading, setLoading] = useState(true);
   
   if (error || !src) {
-    return (
-      <div className={`${className}-placeholder`}>
-        {fallbackChar}
-      </div>
-    );
+    return <div className={`${className}-placeholder`}>{fallbackChar}</div>;
   }
   
   return (
     <img 
       src={src} 
       className={className}
-      onError={() => {
-        setError(true);
-        setLoading(false);
-      }}
-      onLoad={() => setLoading(false)}
-      style={{ display: loading ? 'none' : 'block' }}
+      onError={() => setError(true)}
       alt=""
     />
   );
@@ -120,16 +108,10 @@ const SafeImage = ({ src, className, fallbackChar }: { src: string; className: s
 
 const getAllowedNextStatuses = (currentStatus: string): string[] => {
   switch (currentStatus) {
-    case 'PENDING':
-      return ['REVIEWING', 'RESOLVED', 'DISMISSED'];
-    case 'REVIEWING':
-      return ['RESOLVED', 'DISMISSED'];
-    case 'RESOLVED':
-      return ['DISMISSED'];
-    case 'DISMISSED':
-      return [];
-    default:
-      return ['PENDING', 'REVIEWING', 'RESOLVED', 'DISMISSED'];
+    case 'PENDING': return ['REVIEWING', 'RESOLVED', 'DISMISSED'];
+    case 'REVIEWING': return ['RESOLVED', 'DISMISSED'];
+    case 'RESOLVED': return ['DISMISSED'];
+    default: return [];
   }
 };
 
@@ -144,32 +126,36 @@ const Reports: React.FC = () => {
   const [updateNotes, setUpdateNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
-  const [filters, setFilters] = useState<ReportFilters>({
-    status: 'ALL',
-    page: 1,
-    limit: 20
-  });
+  const [filters, setFilters] = useState<ReportFilters>({ status: 'ALL', page: 1, limit: 20 });
   const [totalReports, setTotalReports] = useState(0);
   const [stats, setStats] = useState<ReportStatistics | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [searchInput, setSearchInput] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ id: string; title: string; message: string } | null>(null);
   const [hasNewReport, setHasNewReport] = useState(false);
-  
-  // Delete state - HARD DELETE ONLY
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
   const [deleting, setDeleting] = useState(false);
   
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
   const toastTimeoutRef = useRef<number | undefined>(undefined);
   const lastShownReportIdRef = useRef<string | null>(null);
   const pendingToastRef = useRef<{ id: string; title: string; message: string } | null>(null);
+  const initialLoadDoneRef = useRef(false);
+  const filtersRef = useRef(filters);
+  
+  const SEARCH_DEBOUNCE_DELAY = 500;
 
-  // Helper function to refresh all data
+  useEffect(() => { 
+    filtersRef.current = filters; 
+  }, [filters]);
+
   const refreshAllData = useCallback(async () => {
     try {
-      const queryFilters = { ...filters };
+      const currentFilters = filtersRef.current;
+      const queryFilters = { ...currentFilters };
       if (queryFilters.status === 'ALL') delete queryFilters.status;
       
       const [freshReports, freshStats] = await Promise.all([
@@ -178,34 +164,30 @@ const Reports: React.FC = () => {
       ]);
       
       if (freshReports.success && isMountedRef.current) {
-        setReports(freshReports.reports || []);
+        setReports([...freshReports.reports || []]);
         setTotalReports(freshReports.pagination?.total || 0);
       }
-      
       if (freshStats.success && freshStats.statistics && isMountedRef.current) {
         setStats(freshStats.statistics);
       }
-      
       return true;
     } catch (err) {
       console.error('Refresh error:', err);
       return false;
     }
-  }, [filters]);
+  }, []);
 
-  // ===== FETCH REPORTS =====
-  const fetchReports = useCallback(async (filterParams?: ReportFilters) => {
+  const fetchReports = useCallback(async () => {
+    if (!isMountedRef.current) return;
     try {
-      const apiFilters = filterParams || filters;
-      const queryFilters = { ...apiFilters };
+      const currentFilters = filtersRef.current;
+      const queryFilters = { ...currentFilters };
       if (queryFilters.status === 'ALL') delete queryFilters.status;
-      
-      console.log('📥 Fetching reports with filters:', queryFilters);
       
       const result = await AdminReportsService.getReports(queryFilters);
       
       if (result.success && isMountedRef.current) {
-        setReports(result.reports || []);
+        setReports([...result.reports || []]);
         setTotalReports(result.pagination?.total || 0);
         setHasNewReport(false);
         setError(null);
@@ -214,18 +196,18 @@ const Reports: React.FC = () => {
       }
     } catch (err) {
       console.error('Fetch reports error:', err);
-      if (isMountedRef.current) {
-        setError('Network error. Please try again.');
-      }
+      if (isMountedRef.current) setError('Network error. Please try again.');
     } finally {
       if (isMountedRef.current) {
         setLoading(false);
         setRefreshing(false);
+        setIsSearching(false);
       }
     }
-  }, [filters]);
+  }, []);
 
   const fetchStats = useCallback(async () => {
+    if (!isMountedRef.current) return;
     try {
       const result = await AdminReportsService.getReportStatistics();
       if (result.success && result.statistics && isMountedRef.current) {
@@ -236,63 +218,77 @@ const Reports: React.FC = () => {
     }
   }, []);
 
-  // ===== REAL-TIME SOCKET LISTENERS =====
+  const debouncedSearch = useCallback((searchValue: string) => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      if (!isMountedRef.current) return;
+      setIsSearching(false);
+      setFilters(prev => ({ ...prev, search: searchValue || undefined, page: 1 }));
+    }, SEARCH_DEBOUNCE_DELAY);
+  }, []);
+
+  const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setSearchInput(value);
+    setIsSearching(!!value.trim());
+    debouncedSearch(value);
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      setIsSearching(false);
+      setFilters(prev => ({ ...prev, search: searchInput || undefined, page: 1 }));
+    }
+  };
+
+  const clearSearch = () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    setSearchInput('');
+    setIsSearching(false);
+    setFilters(prev => ({ ...prev, search: undefined, page: 1 }));
+  };
+
   useEffect(() => {
     const handleNewReport = (...args: unknown[]) => {
       const data = args[0] as NewReportSocketData;
-      console.log('📢 Real-time: New report received', data);
-      
       if (data.reportId !== lastShownReportIdRef.current) {
         lastShownReportIdRef.current = data.reportId;
-        
         pendingToastRef.current = {
           id: data.reportId,
           title: '🚨 New Report',
           message: `${data.reporterName} reported "${data.groupName}" for ${data.reportType?.replace(/_/g, ' ') || 'unknown'}`
         };
       }
-      
       refreshAllData();
       setHasNewReport(true);
     };
     
     const handleReportStatusChanged = (...args: unknown[]) => {
       const data = args[0] as ReportStatusSocketData;
-      console.log('📢 Real-time: Report status changed', data);
-      
       refreshAllData();
-      
       setToastMessage({
         id: data.reportId,
         title: '✅ Status Updated',
         message: `Report #${data.reportId.slice(0, 8)} changed from ${data.oldStatus} to ${data.newStatus}`
       });
-      
       setTimeout(() => setToastMessage(null), 3000);
-      
       if (selectedReport?.id === data.reportId && isMountedRef.current) {
         AdminReportsService.getReportById(data.reportId).then(result => {
-          if (result.success && result.report && isMountedRef.current) {
-            setSelectedReport(result.report);
-          }
+          if (result.success && result.report && isMountedRef.current) setSelectedReport(result.report);
         });
       }
     };
     
     const handleReportDeleted = (...args: unknown[]) => {
       const data = args[0] as ReportDeletedSocketData;
-      console.log('📢 Real-time: Report HARD DELETED', data);
-      
       refreshAllData();
-      
       setToastMessage({
         id: data.reportId,
         title: '🗑️ Report Permanently Deleted',
-        message: `Report #${data.reportId.slice(0, 8)} was permanently deleted by ${data.deletedBy}`
+        message: `Report #${data.reportId.slice(0, 8)} was permanently deleted`
       });
-      
       setTimeout(() => setToastMessage(null), 3000);
-      
       if (selectedReport?.id === data.reportId) {
         setShowDetailsModal(false);
         setSelectedReport(null);
@@ -310,52 +306,41 @@ const Reports: React.FC = () => {
     };
   }, [refreshAllData, selectedReport]);
 
-  // ===== Show toast for new report =====
   useEffect(() => {
     if (pendingToastRef.current) {
       const toast = pendingToastRef.current;
       pendingToastRef.current = null;
-      
       setToastMessage(toast);
-      
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
       toastTimeoutRef.current = setTimeout(() => {
         setToastMessage(null);
-        setTimeout(() => {
-          lastShownReportIdRef.current = null;
-        }, 1000);
+        setTimeout(() => { lastShownReportIdRef.current = null; }, 1000);
       }, 5000);
-    } 
+    }
   }, [reports]);
 
   useEffect(() => {
-    if (isMountedRef.current) {
+    isMountedRef.current = true;
+    if (!initialLoadDoneRef.current) {
+      initialLoadDoneRef.current = true;
+      fetchReports();
       fetchStats();
     }
-  }, [filters.status, fetchStats]);
-
-  // ===== Initial data load =====
-  useEffect(() => {
-    isMountedRef.current = true;
-    
-    const loadInitialData = async () => {
-      await Promise.all([fetchReports(filters), fetchStats()]);
-    };
-    
-    loadInitialData();
-    
     return () => {
       isMountedRef.current = false;
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Refetch when filters change
+  // ✅ CRITICAL FIX: Remove fetchReports from dependencies
   useEffect(() => {
-    if (isMountedRef.current && !loading) {
-      fetchReports(filters);
+    if (initialLoadDoneRef.current && isMountedRef.current) {
+      fetchReports();
+      fetchStats();
     }
-  }, [filters.page, filters.status, filters.search, fetchReports, filters, loading]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.page, filters.status, filters.search]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -364,30 +349,18 @@ const Reports: React.FC = () => {
     setRefreshing(false);
   };
 
-  const handleSearch = () => {
-    const newFilters = { ...filters, search: searchInput, page: 1 };
-    setFilters(newFilters);
-  };
-
   const handleStatusChange = (status: string) => {
-    const newFilters = { ...filters, status, page: 1 };
-    setFilters(newFilters);
+    setFilters({ ...filters, status, page: 1 });
     setHasNewReport(false);
   };
 
   const handleStatClick = (status: string) => {
-    const newFilters = { ...filters, status, page: 1 };
-    setFilters(newFilters);
+    setFilters({ ...filters, status, page: 1 });
     setHasNewReport(false);
   };
 
   const handlePageChange = (newPage: number) => {
-    const newFilters = { ...filters, page: newPage };
-    setFilters(newFilters);
-  };
-
-  const handleRowClick = (report: Report) => {
-    handleViewDetails(report);
+    setFilters({ ...filters, page: newPage });
   };
 
   const handleViewDetails = (report: Report) => {
@@ -404,7 +377,6 @@ const Reports: React.FC = () => {
     setShowUpdateModal(true);
   };
 
-  // ===== DELETE HANDLER - HARD DELETE ONLY (no soft delete option) =====
   const handleDeleteClick = (report: Report) => {
     setReportToDelete(report);
     setShowDeleteModal(true);
@@ -412,35 +384,18 @@ const Reports: React.FC = () => {
 
   const handleConfirmDelete = async () => {
     if (!reportToDelete) return;
-    
     setDeleting(true);
     try {
-      // HARD DELETE ONLY - always pass true
       const result = await AdminReportsService.deleteReport(reportToDelete.id, true);
-      
       if (result.success) {
         setShowDeleteModal(false);
         setReportToDelete(null);
-        
-        setRefreshing(true);
         await refreshAllData();
-        setRefreshing(false);
-        
-        setToastMessage({
-          id: Date.now().toString(),
-          title: '🗑️ Report Permanently Deleted',
-          message: `Report #${reportToDelete.id.slice(0, 8)} has been permanently deleted`
-        });
-        
-        setTimeout(() => setToastMessage(null), 3000);
-        
-        // Close details modal if open
         if (selectedReport?.id === reportToDelete.id) {
           setShowDetailsModal(false);
           setSelectedReport(null);
           setSelectedRowId(null);
         }
-        
       } else {
         alert(result.message || 'Failed to delete report');
       }
@@ -454,35 +409,16 @@ const Reports: React.FC = () => {
 
   const handleUpdateStatus = async () => {
     if (!selectedReport) return;
-    
     setSubmitting(true);
     try {
-      const result = await AdminReportsService.updateReportStatus(
-        selectedReport.id,
-        updateStatus,
-        updateNotes
-      );
-      
+      const result = await AdminReportsService.updateReportStatus(selectedReport.id, updateStatus, updateNotes);
       if (result.success) {
         setShowUpdateModal(false);
-        
-        setRefreshing(true);
         await refreshAllData();
-        setRefreshing(false);
-        
-        setToastMessage({
-          id: Date.now().toString(),
-          title: '✅ Status Updated',
-          message: `Report status changed to ${updateStatus}`
-        });
-        
-        setTimeout(() => setToastMessage(null), 3000);
-        
         setSelectedReport(null);
         setSelectedRowId(null);
         setUpdateStatus('');
         setUpdateNotes('');
-        
       } else {
         alert(result.message || 'Failed to update report');
       }
@@ -514,10 +450,7 @@ const Reports: React.FC = () => {
 
   const closeModal = () => {
     setShowDetailsModal(false);
-    setTimeout(() => {
-      setSelectedReport(null);
-      setSelectedRowId(null);
-    }, 300);
+    setTimeout(() => { setSelectedReport(null); setSelectedRowId(null); }, 300);
   };
 
   const closeUpdateModal = () => {
@@ -558,8 +491,7 @@ const Reports: React.FC = () => {
       case 'OFFENSIVE_BEHAVIOR': return '🤬';
       case 'TASK_ABUSE': return '📋';
       case 'GROUP_MISUSE': return '👥';
-      case 'OTHER': return '❓';
-      default: return '🏷️';
+      default: return '❓';
     }
   };
 
@@ -578,22 +510,17 @@ const Reports: React.FC = () => {
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
     });
   };
 
   const getTimeAgo = (dateString: string) => {
     const now = new Date();
     const date = new Date(dateString);
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
+    const diffMins = Math.floor((now.getTime() - date.getTime()) / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
     if (diffMins < 1) return 'Just now';
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
@@ -602,15 +529,11 @@ const Reports: React.FC = () => {
   };
 
   const totalPages = Math.ceil(totalReports / (filters.limit || 20));
+  const hasActiveFilters = !!(searchInput || filters.status !== 'ALL');
 
   const clearFilters = () => {
-    setSearchInput('');
-    const newFilters = {
-      status: 'ALL',
-      page: 1,
-      limit: 20
-    };
-    setFilters(newFilters);
+    clearSearch();
+    setFilters({ status: 'ALL', page: 1, limit: 20, search: undefined });
     setHasNewReport(false);
   };
 
@@ -620,7 +543,6 @@ const Reports: React.FC = () => {
 
   return (
     <div className="reports-page">
-      {/* Toast notification */}
       {toastMessage && (
         <div className="reports-toast" key={toastMessage.id}>
           <div className="toast-content">
@@ -645,102 +567,42 @@ const Reports: React.FC = () => {
 
       {stats && (
         <div className="stats-grid">
-          <div 
-            className={`stat-card total ${filters.status === 'ALL' ? 'active' : ''}`}
-            onClick={() => handleStatClick('ALL')}
-            style={{ cursor: 'pointer' }}
-          >
-            <div className="stat-icon">
-              <FontAwesomeIcon icon={faFlag} />
-            </div>
-            <div className="stat-content">
-              <span className="stat-value">{stats.overview.total}</span>
-              <span className="stat-label">Total Reports</span>
-            </div>
+          <div className={`stat-card total ${filters.status === 'ALL' ? 'active' : ''}`} onClick={() => handleStatClick('ALL')} style={{ cursor: 'pointer' }}>
+            <div className="stat-icon"><FontAwesomeIcon icon={faFlag} /></div>
+            <div className="stat-content"><span className="stat-value">{stats.overview.total}</span><span className="stat-label">Total Reports</span></div>
             {filters.status === 'ALL' && <div className="stat-active-indicator" />}
           </div>
-          
-          <div 
-            className={`stat-card pending ${filters.status === 'PENDING' ? 'active' : ''}`}
-            onClick={() => handleStatClick('PENDING')}
-            style={{ cursor: 'pointer' }}
-          >
-            <div className="stat-icon">
-              <FontAwesomeIcon icon={faClock} />
-            </div>
-            <div className="stat-content">
-              <span className="stat-value">{stats.overview.pending}</span>
-              <span className="stat-label">Pending</span>
-            </div>
+          <div className={`stat-card pending ${filters.status === 'PENDING' ? 'active' : ''}`} onClick={() => handleStatClick('PENDING')} style={{ cursor: 'pointer' }}>
+            <div className="stat-icon"><FontAwesomeIcon icon={faClock} /></div>
+            <div className="stat-content"><span className="stat-value">{stats.overview.pending}</span><span className="stat-label">Pending</span></div>
             {filters.status === 'PENDING' && <div className="stat-active-indicator" />}
           </div>
-          
-          <div 
-            className={`stat-card reviewing ${filters.status === 'REVIEWING' ? 'active' : ''}`}
-            onClick={() => handleStatClick('REVIEWING')}
-            style={{ cursor: 'pointer' }}
-          >
-            <div className="stat-icon">
-              <FontAwesomeIcon icon={faSpinner} />
-            </div>
-            <div className="stat-content">
-              <span className="stat-value">{stats.overview.reviewing}</span>
-              <span className="stat-label">Reviewing</span>
-            </div>
+          <div className={`stat-card reviewing ${filters.status === 'REVIEWING' ? 'active' : ''}`} onClick={() => handleStatClick('REVIEWING')} style={{ cursor: 'pointer' }}>
+            <div className="stat-icon"><FontAwesomeIcon icon={faSpinner} /></div>
+            <div className="stat-content"><span className="stat-value">{stats.overview.reviewing}</span><span className="stat-label">Reviewing</span></div>
             {filters.status === 'REVIEWING' && <div className="stat-active-indicator" />}
           </div>
-          
-          <div 
-            className={`stat-card resolved ${filters.status === 'RESOLVED' ? 'active' : ''}`}
-            onClick={() => handleStatClick('RESOLVED')}
-            style={{ cursor: 'pointer' }}
-          >
-            <div className="stat-icon">
-              <FontAwesomeIcon icon={faCheckCircle} />
-            </div>
-            <div className="stat-content">
-              <span className="stat-value">{stats.overview.resolved}</span>
-              <span className="stat-label">Resolved</span>
-            </div>
+          <div className={`stat-card resolved ${filters.status === 'RESOLVED' ? 'active' : ''}`} onClick={() => handleStatClick('RESOLVED')} style={{ cursor: 'pointer' }}>
+            <div className="stat-icon"><FontAwesomeIcon icon={faCheckCircle} /></div>
+            <div className="stat-content"><span className="stat-value">{stats.overview.resolved}</span><span className="stat-label">Resolved</span></div>
             {filters.status === 'RESOLVED' && <div className="stat-active-indicator" />}
           </div>
-          
-          <div 
-            className={`stat-card dismissed ${filters.status === 'DISMISSED' ? 'active' : ''}`}
-            onClick={() => handleStatClick('DISMISSED')}
-            style={{ cursor: 'pointer' }}
-          >
-            <div className="stat-icon">
-              <FontAwesomeIcon icon={faTimes} />
-            </div>
-            <div className="stat-content">
-              <span className="stat-value">{stats.overview.dismissed}</span>
-              <span className="stat-label">Dismissed</span>
-            </div>
+          <div className={`stat-card dismissed ${filters.status === 'DISMISSED' ? 'active' : ''}`} onClick={() => handleStatClick('DISMISSED')} style={{ cursor: 'pointer' }}>
+            <div className="stat-icon"><FontAwesomeIcon icon={faTimes} /></div>
+            <div className="stat-content"><span className="stat-value">{stats.overview.dismissed}</span><span className="stat-label">Dismissed</span></div>
             {filters.status === 'DISMISSED' && <div className="stat-active-indicator" />}
           </div>
-          
           <div className="stat-card rate">
-            <div className="stat-icon">
-              <FontAwesomeIcon icon={faCheckCircle} />
-            </div>
-            <div className="stat-content">
-              <span className="stat-value">{stats.overview.resolutionRate}%</span>
-              <span className="stat-label">Resolution Rate</span>
-            </div>
+            <div className="stat-icon"><FontAwesomeIcon icon={faCheckCircle} /></div>
+            <div className="stat-content"><span className="stat-value">{stats.overview.resolutionRate}%</span><span className="stat-label">Resolution Rate</span></div>
           </div>
         </div>
       )}
 
-      {/* Filters */}
       <div className="filters-bar">
         <div className="filter-group">
           <FontAwesomeIcon icon={faFilter} className="filter-icon" />
-          <select 
-            value={filters.status} 
-            onChange={(e) => handleStatusChange(e.target.value)}
-            className="filter-select"
-          >
+          <select value={filters.status} onChange={(e) => handleStatusChange(e.target.value)} className="filter-select">
             <option value="ALL">All Reports</option>
             <option value="PENDING">Pending</option>
             <option value="REVIEWING">Reviewing</option>
@@ -752,19 +614,29 @@ const Reports: React.FC = () => {
           <FontAwesomeIcon icon={faSearch} className="search-icon" />
           <input 
             type="text" 
-            placeholder="Search reports..." 
+            placeholder="Search reports by group name, reporter, description..." 
             value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            onChange={handleSearchInputChange}
+            onKeyDown={handleKeyPress}
             className="search-input"
           />
-          <button className="search-btn" onClick={handleSearch}>
-            Search
-          </button>
+          {searchInput && (
+            <button className="search-clear" onClick={clearSearch} title="Clear search">×</button>
+          )}
+          {isSearching && (
+            <div className="search-spinner"><div className="spinner"></div></div>
+          )}
         </div>
       </div>
 
-      {/* Error State */}
+      {hasActiveFilters && (
+        <div className="reports-active-filters">
+          {searchInput && <span className="active-filter-badge">Search: "{searchInput}"<button onClick={clearSearch}>×</button></span>}
+          {filters.status !== 'ALL' && <span className="active-filter-badge">Status: {filters.status}<button onClick={() => handleStatusChange('ALL')}>×</button></span>}
+          <button className="reports-clear-filters" onClick={clearFilters}>Clear All</button>
+        </div>
+      )}
+
       {error ? (
         <div className="error-state">
           <FontAwesomeIcon icon={faExclamationTriangle} size="3x" />
@@ -773,23 +645,18 @@ const Reports: React.FC = () => {
         </div>
       ) : reports.length === 0 && !loading ? (
         <div className="empty-state">
-          <div className="empty-icon">
-            <FontAwesomeIcon icon={faFlag} />
-          </div>
+          <div className="empty-icon"><FontAwesomeIcon icon={faFlag} /></div>
           <h3>No reports found</h3>
-          <p>
-            {searchInput || filters.status !== 'ALL'
-              ? "No reports match your current filters. Try adjusting your search."
-              : "There are no reports in the system yet."}
-          </p>
-          {(searchInput || filters.status !== 'ALL') && (
-            <button className="empty-btn" onClick={clearFilters}>
-              Clear Filters
-            </button>
-          )}
+          <p>{hasActiveFilters ? "No reports match your current filters. Try adjusting your search." : "There are no reports in the system yet."}</p>
+          {hasActiveFilters && <button className="empty-btn" onClick={clearFilters}>Clear Filters</button>}
         </div>
       ) : (
         <>
+          <div className="results-summary">
+            <span>Showing {reports.length} of {totalReports} reports</span>
+            {isSearching && <span className="searching-indicator">Searching...</span>}
+          </div>
+
           <div className="table-container">
             <table className="reports-table">
               <thead>
@@ -804,10 +671,10 @@ const Reports: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {reports.map((report, index) => (
+                {reports.map((report) => (
                   <tr 
-                    key={`${report.id}-${report.status}-${index}`} 
-                    onClick={() => handleRowClick(report)}
+                    key={report.id} 
+                    onClick={() => handleViewDetails(report)} 
                     className={`report-row ${selectedRowId === report.id ? 'selected' : ''}`}
                   >
                     <td>
@@ -867,10 +734,7 @@ const Reports: React.FC = () => {
                       <div className="action-buttons">
                         <button 
                           className="action-btn view"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleViewFullDetails(report);
-                          }}
+                          onClick={(e) => { e.stopPropagation(); handleViewFullDetails(report); }}
                           title="View Details"
                         >
                           <FontAwesomeIcon icon={faEye} />
@@ -882,7 +746,6 @@ const Reports: React.FC = () => {
                         >
                           <FontAwesomeIcon icon={faCheck} />
                         </button>
-                        {/* NO DELETE BUTTON IN TABLE ROW - Only in modal for DISMISSED */}
                       </div>
                     </td>
                   </tr>
@@ -891,7 +754,6 @@ const Reports: React.FC = () => {
             </table>
           </div>
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <div className="pagination">
               <button 
@@ -901,9 +763,7 @@ const Reports: React.FC = () => {
               >
                 <FontAwesomeIcon icon={faChevronLeft} />
               </button>
-              <span className="page-info">
-                Page {filters.page} of {totalPages}
-              </span>
+              <span className="page-info">Page {filters.page} of {totalPages}</span>
               <button 
                 onClick={() => handlePageChange((filters.page || 1) + 1)}
                 disabled={filters.page === totalPages}
@@ -916,7 +776,7 @@ const Reports: React.FC = () => {
         </>
       )}
 
-      {/* Details Modal - WITH DELETE BUTTON (only shows if status is DISMISSED) */}
+      {/* Details Modal */}
       {showDetailsModal && selectedReport && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-content report-details-modal" onClick={(e) => e.stopPropagation()}>
@@ -947,94 +807,45 @@ const Reports: React.FC = () => {
                   <span className="detail-label">Reported:</span>
                   <span>{formatDate(selectedReport.createdAt)}</span>
                 </div>
-                {selectedReport.resolvedAt && (
-                  <div className="detail-row">
-                    <span className="detail-label">Resolved:</span>
-                    <span>{formatDate(selectedReport.resolvedAt)}</span>
-                  </div>
-                )}
-                {selectedReport.resolver && (
-                  <div className="detail-row">
-                    <span className="detail-label">Resolved by:</span>
-                    <span>{selectedReport.resolver.fullName}</span>
-                  </div>
-                )}
               </div>
-
               <div className="details-section">
                 <h3>Group Information</h3>
                 <div className="detail-row">
                   <span className="detail-label">Name:</span>
                   <span>{selectedReport.group?.name || 'Unknown'}</span>
                 </div>
-                <div className="detail-row">
-                  <span className="detail-label">Members:</span>
-                  <span><FontAwesomeIcon icon={faUsers} /> {selectedReport.group?._count?.members || 0}</span>
-                </div>
-                <div className="detail-row">
-                  <span className="detail-label">Tasks:</span>
-                  <span><FontAwesomeIcon icon={faFlag} /> {selectedReport.group?._count?.tasks || 0}</span>
-                </div>
-                {selectedReport.group?.description && (
-                  <div className="detail-row description">
-                    <span className="detail-label">Description:</span>
-                    <p>{selectedReport.group.description}</p>
-                  </div>
-                )}
               </div>
-
               <div className="details-section">
                 <h3>Reporter Information</h3>
                 <div className="detail-row">
                   <span className="detail-label">Name:</span>
                   <span>{selectedReport.reporter?.fullName || 'Unknown'}</span>
                 </div>
-                <div className="detail-row">
-                  <span className="detail-label">Email:</span>
-                  <span>{selectedReport.reporter?.email || 'Unknown'}</span>
-                </div>
               </div>
-
               <div className="details-section">
                 <h3>Report Description</h3>
                 <div className="description-box">
                   {selectedReport.description || 'No description provided'}
                 </div>
               </div>
-
-              {selectedReport.resolutionNotes && (
-                <div className="details-section">
-                  <h3>Resolution Notes</h3>
-                  <div className="resolution-notes">
-                    {selectedReport.resolutionNotes}
-                  </div>
-                </div>
-              )}
             </div>
             <div className="modal-footer">
-              <button className="modal-cancel" onClick={closeModal}>
-                Close
-              </button>
+              <button className="modal-cancel" onClick={closeModal}>Close</button>
               <button 
                 className="modal-confirm"
                 onClick={() => {
                   closeModal();
-                  setTimeout(() => {
-                    handleUpdateClick({ stopPropagation: () => {} } as React.MouseEvent, selectedReport);
-                  }, 300);
+                  setTimeout(() => handleUpdateClick({ stopPropagation: () => {} } as React.MouseEvent, selectedReport), 300);
                 }}
               >
                 Update Status
               </button>
-              {/* DELETE BUTTON - ONLY SHOW WHEN STATUS IS DISMISSED - HARD DELETE ONLY */}
               {selectedReport.status === 'DISMISSED' && (
                 <button 
                   className="modal-confirm delete"
                   onClick={() => {
                     closeModal();
-                    setTimeout(() => {
-                      handleDeleteClick(selectedReport);
-                    }, 300);
+                    setTimeout(() => handleDeleteClick(selectedReport), 300);
                   }}
                 >
                   <FontAwesomeIcon icon={faTrash} /> Permanently Delete
@@ -1074,16 +885,9 @@ const Reports: React.FC = () => {
                 >
                   <option value="">Select new status...</option>
                   {getAllowedNextStatuses(selectedReport.status).map(status => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
+                    <option key={status} value={status}>{status}</option>
                   ))}
                 </select>
-                {getAllowedNextStatuses(selectedReport.status).length === 0 && (
-                  <p className="form-hint" style={{ color: '#fa5252', marginTop: 8 }}>
-                    This report is in a terminal state and cannot be changed.
-                  </p>
-                )}
               </div>
               <div className="form-group">
                 <label>Resolution Notes</label>
@@ -1097,13 +901,11 @@ const Reports: React.FC = () => {
               </div>
             </div>
             <div className="modal-footer">
-              <button className="modal-cancel" onClick={closeUpdateModal}>
-                Cancel
-              </button>
+              <button className="modal-cancel" onClick={closeUpdateModal}>Cancel</button>
               <button 
                 className="modal-confirm"
                 onClick={handleUpdateStatus}
-                disabled={submitting || !updateStatus || getAllowedNextStatuses(selectedReport.status).length === 0}
+                disabled={submitting || !updateStatus}
               >
                 {submitting ? 'Updating...' : 'Update Status'}
               </button>
@@ -1112,7 +914,7 @@ const Reports: React.FC = () => {
         </div>
       )}
 
-      {/* Delete Confirmation Modal - HARD DELETE ONLY (no options, just warning) */}
+      {/* Delete Modal */}
       {showDeleteModal && reportToDelete && (
         <div className="modal-overlay" onClick={() => setShowDeleteModal(false)}>
           <div className="modal-content delete-modal" onClick={(e) => e.stopPropagation()}>
@@ -1130,25 +932,9 @@ const Reports: React.FC = () => {
                 ⚠️ <strong>Warning: This action is PERMANENT and cannot be undone!</strong>
               </p>
               <p>Are you sure you want to permanently delete this report?</p>
-              
-              {reportToDelete && (
-                <div className="report-summary">
-                  <strong>Report ID:</strong> {reportToDelete.id.slice(0, 8)}...
-                  <br />
-                  <strong>Type:</strong> {reportToDelete.type}
-                  <br />
-                  <strong>Group:</strong> {reportToDelete.group?.name || 'Unknown'}
-                  <br />
-                  <strong>Reporter:</strong> {reportToDelete.reporter?.fullName || 'Unknown'}
-                  <br />
-                  <strong>Created:</strong> {formatDate(reportToDelete.createdAt)}
-                </div>
-              )}
             </div>
             <div className="modal-footer">
-              <button className="modal-cancel" onClick={() => setShowDeleteModal(false)}>
-                Cancel
-              </button>
+              <button className="modal-cancel" onClick={() => setShowDeleteModal(false)}>Cancel</button>
               <button 
                 className="modal-confirm delete"
                 onClick={handleConfirmDelete}
@@ -1162,6 +948,6 @@ const Reports: React.FC = () => {
       )}
     </div>
   );
-};
+}; 
 
 export default Reports;

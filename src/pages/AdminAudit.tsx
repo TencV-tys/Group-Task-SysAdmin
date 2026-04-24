@@ -1,6 +1,6 @@
-// pages/AdminAudit.tsx - FULLY UPDATED & FIXED
+// pages/AdminAudit.tsx - COMPLETE WORKING VERSION
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAdminAudit } from '../hooks/useAdminAudit';
 import AuditModal from '../components/AuditModal';
 import LoadingScreen from '../components/LoadingScreen';
@@ -31,7 +31,7 @@ const AdminAudit = () => {
   console.log('🏁 [AdminAudit] Component rendering');
    
   const {
-    logs: allLogs,
+    logs,
     loading,
     error, 
     pagination,
@@ -41,10 +41,6 @@ const AdminAudit = () => {
     setPagination,
   } = useAdminAudit(20);
 
-  // Client-side filtered logs
-  const [filteredLogs, setFilteredLogs] = useState<AuditLog[]>([]);
-
-  // Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [adminFilter, setAdminFilter] = useState('');
   const [actionFilter, setActionFilter] = useState('');
@@ -52,21 +48,22 @@ const AdminAudit = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [initialLoad, setInitialLoad] = useState(true);
+  const [isSearching, setIsSearching] = useState(false);
   
-  // Separate state for stats (unfiltered by action)
   const [dateRangeStats, setDateRangeStats] = useState<{ 
     total: number; 
     byAction: Array<{ action: string; count: number }> 
   } | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
 
-  // Modal
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
-  // Helper to get date range params
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const SEARCH_DEBOUNCE_DELAY = 500;
+
   const getDateRangeParams = useCallback(() => {
     const params: { startDate?: string; endDate?: string } = {};
     
@@ -99,57 +96,91 @@ const AdminAudit = () => {
     return params;
   }, [dateRange, startDate, endDate]);
 
-  // Fetch stats for date range
   const fetchDateRangeStats = useCallback(async () => {
     const dateParams = getDateRangeParams();
-    console.log('📊 [AdminAudit] Fetching stats for date range:', dateParams);
     setStatsLoading(true);
     
     try {
-      const bustedParams = {
-        ...dateParams,
-        _t: Date.now().toString()
-      };
-      const result = await AdminAuditService.getStatistics(bustedParams);
-      console.log('📊 [AdminAudit] byAction data:', result.statistics?.byAction);
-console.log('📊 [AdminAudit] byAction length:', result.statistics?.byAction?.length);
-      console.log('📊 [AdminAudit] Stats result:', result);
+      const result = await AdminAuditService.getStatistics(dateParams);
       if (result.success && result.statistics) {
         setDateRangeStats({
           total: result.statistics.total,
           byAction: result.statistics.byAction || []
         });
       } else {
-        // Set empty stats to show the component
-        setDateRangeStats({
-          total: 0,
-          byAction: []
-        });
+        setDateRangeStats({ total: 0, byAction: [] });
       }
     } catch (err) {
       console.error('❌ [AdminAudit] Failed to fetch stats:', err);
-      setDateRangeStats({
-        total: 0,
-        byAction: []
-      });
+      setDateRangeStats({ total: 0, byAction: [] });
     } finally {
       setStatsLoading(false);
     }
   }, [getDateRangeParams]);
 
-  // ✅ Fetch stats on initial mount (run once)
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setSearchTerm(value);
+    setIsSearching(true);
+    
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      setIsSearching(false);
+      setPagination(prev => ({ ...prev, page: 1 }));
+    }, SEARCH_DEBOUNCE_DELAY);
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      setIsSearching(false);
+      setPagination(prev => ({ ...prev, page: 1 }));
+    }
+  };
+
+  const clearSearch = () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    setSearchTerm('');
+    setIsSearching(false);
+    setPagination(prev => ({ ...prev, page: 1 }));
+  };
+
   useEffect(() => {
     fetchDateRangeStats();
   }, [fetchDateRangeStats]);
 
-  // ✅ Fetch stats when date range changes
-useEffect(() => {
-  fetchDateRangeStats();
-}, [dateRange, startDate, endDate, fetchDateRangeStats]);
-  // Fetch logs when filters change
+  // ✅ FIXED useEffect - calculate dates inside, remove dateRange/startDate/endDate from deps
   useEffect(() => {
     const fetchData = async () => {
-      const dateParams = getDateRangeParams();
+      // Calculate date parameters using current state values
+      const now = new Date();
+      const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      
+      let startDateParam: string | undefined;
+      let endDateParam: string | undefined;
+      
+      if (dateRange === 'today') {
+        const start = new Date(); start.setHours(0,0,0,0);
+        startDateParam = start.toISOString();
+        endDateParam = endOfDay.toISOString();
+      } else if (dateRange === 'week') {
+        const start = new Date(); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0);
+        startDateParam = start.toISOString();
+        endDateParam = endOfDay.toISOString();
+      } else if (dateRange === 'month') {
+        const start = new Date(); start.setDate(start.getDate() - 29); start.setHours(0,0,0,0);
+        startDateParam = start.toISOString();
+        endDateParam = endOfDay.toISOString();
+      } else if (dateRange === 'custom') {
+        if (startDate) {
+          const start = new Date(startDate); start.setHours(0,0,0,0);
+          startDateParam = start.toISOString();
+        }
+        if (endDate) {
+          const end = new Date(endDate); end.setHours(23,59,59,999);
+          endDateParam = end.toISOString();
+        }
+      }
       
       const params: FetchParams = {
         limit: pagination.limit,
@@ -159,8 +190,8 @@ useEffect(() => {
       if (searchTerm) params.search = searchTerm;
       if (adminFilter) params.adminId = adminFilter;
       if (actionFilter) params.action = actionFilter;
-      if (dateParams.startDate) params.startDate = dateParams.startDate;
-      if (dateParams.endDate) params.endDate = dateParams.endDate;
+      if (startDateParam) params.startDate = startDateParam;
+      if (endDateParam) params.endDate = endDateParam;
 
       console.log('📤 [AdminAudit] Fetching logs with params:', params);
       await fetchLogs(params);
@@ -168,35 +199,15 @@ useEffect(() => {
     };
 
     fetchData();
-  }, [pagination.page, pagination.limit, searchTerm, adminFilter, actionFilter, getDateRangeParams, fetchLogs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pagination.page, pagination.limit, searchTerm, adminFilter, actionFilter]); // ✅ ONLY these dependencies
 
-  // Client-side filtering by action
-  useEffect(() => {
-    if (!allLogs) {
-      setFilteredLogs([]);
-      return;
-    }
-
-    let filtered = [...allLogs];
-    
-    if (actionFilter) {
-      filtered = filtered.filter(log => log.action === actionFilter);
-      console.log(`🔍 Client-side filter: showing ${filtered.length} logs with action "${actionFilter}" out of ${allLogs.length} total`);
-    } 
-    
-    setFilteredLogs(filtered);
-  }, [allLogs, actionFilter]);
-
-  // Handle stat card click
   const handleStatClick = useCallback((action: string) => {
-    console.log('📊 [AdminAudit] Stat card clicked with action:', action);
-    
     if (actionFilter === action && action !== '') {
       setActionFilter('');
     } else {
       setActionFilter(action);
     }
-    
     setPagination(prev => ({ ...prev, page: 1 }));
   }, [actionFilter, setPagination]);
 
@@ -204,16 +215,6 @@ useEffect(() => {
     setActionFilter('');
     setPagination(prev => ({ ...prev, page: 1 }));
   }, [setPagination]);
-
-  const handleSearch = () => {
-    setPagination(prev => ({ ...prev, page: 1 }));
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSearch();
-    }
-  };
 
   const handlePageChange = (newPage: number) => {
     if (newPage === pagination.page) return;
@@ -243,17 +244,10 @@ useEffect(() => {
     }
   };
 
-  const handleRowClick = (logId: string) => {
-    handleViewLog(logId);
-  };
-
   const handleDeleteLog = async (logId: string) => {
     const result = await deleteLog(logId);
     if (result.success) {
-      // Force full refresh
-      await fetchDateRangeStats(); 
-      
-      // Refresh current page logs
+      await fetchDateRangeStats();
       const dateParams = getDateRangeParams();
       await fetchLogs({
         limit: pagination.limit,
@@ -308,6 +302,7 @@ useEffect(() => {
   };
 
   const clearFilters = () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     setSearchTerm('');
     setAdminFilter('');
     setActionFilter('');
@@ -315,6 +310,7 @@ useEffect(() => {
     setStartDate('');
     setEndDate('');
     setPagination(prev => ({ ...prev, page: 1 }));
+    setIsSearching(false);
   };
 
   const formatDate = (dateString: string): string => {
@@ -364,7 +360,7 @@ useEffect(() => {
       .replace(/\b\w/g, char => char.toUpperCase());
   };
 
-  if (initialLoad && loading && allLogs.length === 0) {
+  if (initialLoad && loading && logs.length === 0) {
     return <LoadingScreen message="Loading audit logs..." fullScreen />;
   }
 
@@ -372,33 +368,22 @@ useEffect(() => {
     ?.sort((a, b) => b.count - a.count)
     .slice(0, 3) || [];
 
-  console.log('📊 [AdminAudit] Top 3 actions for cards:', topActions);
-
-  const displayLogs = filteredLogs;
-  const displayTotal = filteredLogs.length;
+  const hasActiveFilters = !!(searchTerm || adminFilter || actionFilter);
 
   return (
     <div className="audit-wrapper">
       <div className="audit-container">
-        {/* Header */}
         <div className="audit-header">
           <div className="audit-header-left">
             <h1>Audit Logs</h1>
             <p>Track all admin actions and system events</p>
           </div>
           <div className="audit-header-actions">
-            <button 
-              className="audit-clear-all-btn" 
-              onClick={clearFilters}
-              disabled={loading}
-            >
+            <button className="audit-clear-all-btn" onClick={clearFilters} disabled={loading}>
               Clear All Filters
             </button>
             <div className="audit-export-dropdown">
-              <button className="audit-export-btn">
-                <span>📥</span>
-                Export
-              </button>
+              <button className="audit-export-btn"><span>📥</span>Export</button>
               <div className="audit-export-options">
                 <button onClick={() => handleExport('json')}>Export as JSON</button>
                 <button onClick={() => handleExport('csv')}>Export as CSV</button>
@@ -407,28 +392,17 @@ useEffect(() => {
           </div>
         </div>
 
-        {/* Stats Cards */}
         {statsLoading ? (
           <div className="audit-stats-loading">Loading statistics...</div>
         ) : dateRangeStats ? (
           <div className="audit-stats">
-            <div 
-              className={`audit-stat-card ${actionFilter === '' ? 'active' : ''}`}
-              onClick={() => handleStatClick('')}
-              style={{ cursor: 'pointer' }}
-            >
+            <div className={`audit-stat-card ${actionFilter === '' ? 'active' : ''}`} onClick={() => handleStatClick('')} style={{ cursor: 'pointer' }}>
               <span className="audit-stat-value">{dateRangeStats.total}</span>
               <span className="audit-stat-label">Total Logs</span>
               {actionFilter === '' && <div className="stat-active-indicator" />}
             </div>
-
-            {topActions.slice(0, 3).map((actionStat) => (
-              <div 
-                key={actionStat.action}
-                className={`audit-stat-card ${actionFilter === actionStat.action ? 'active' : ''}`}
-                onClick={() => handleStatClick(actionStat.action)}
-                style={{ cursor: 'pointer' }}
-              >
+            {topActions.map((actionStat) => (
+              <div key={actionStat.action} className={`audit-stat-card ${actionFilter === actionStat.action ? 'active' : ''}`} onClick={() => handleStatClick(actionStat.action)} style={{ cursor: 'pointer' }}>
                 <span className="audit-stat-value">{actionStat.count}</span>
                 <span className="audit-stat-label">{formatActionLabel(actionStat.action)}</span>
                 {actionFilter === actionStat.action && <div className="stat-active-indicator" />}
@@ -439,50 +413,29 @@ useEffect(() => {
           <div className="audit-stats-error">No statistics available</div>
         )}
 
-        {/* Active Filter Indicator */}
         {actionFilter && (
           <div className="audit-active-filter">
-            <span>Filtering by action: <strong>{formatActionLabel(actionFilter)}</strong> ({displayTotal} logs)</span>
-            <button className="audit-clear-filter-btn" onClick={clearActionFilter}>
-              Clear Filter
-            </button>
+            <span>Filtering by action: <strong>{formatActionLabel(actionFilter)}</strong></span>
+            <button className="audit-clear-filter-btn" onClick={clearActionFilter}>Clear Filter</button>
           </div>
         )}
 
         {adminFilter && (
           <div className="audit-active-filter audit-active-filter-admin">
             <span>Filtering by Admin ID: <strong>{adminFilter}</strong></span>
-            <button 
-              className="audit-clear-filter-btn"
-              onClick={() => {
-                setAdminFilter('');
-                setPagination(prev => ({ ...prev, page: 1 }));
-              }}
-            >
-              Clear
-            </button>
+            <button className="audit-clear-filter-btn" onClick={() => { setAdminFilter(''); setPagination(prev => ({ ...prev, page: 1 })); }}>Clear</button>
           </div>
         )}
 
-        {/* Filters */}
         <div className="audit-filters">
           <div className="audit-search">
             <div className="audit-search-wrapper">
               <svg className="audit-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
-              <input
-                type="text"
-                placeholder="Search by action, details..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                onKeyPress={handleKeyPress}
-                className="audit-search-input"
-              />
-              <button onClick={handleSearch} className="audit-search-btn" disabled={loading}>
-                {loading ? 'Searching...' : 'Search'}
-              </button>
+              <input type="text" placeholder="Search by action, details..." value={searchTerm} onChange={handleSearchChange} onKeyPress={handleKeyPress} className="audit-search-input" />
+              {searchTerm && (<button className="audit-search-clear" onClick={clearSearch} title="Clear search">×</button>)}
+              {isSearching && (<div className="audit-search-spinner"><div className="spinner"></div></div>)}
             </div>
           </div>
 
@@ -502,31 +455,33 @@ useEffect(() => {
           )}
         </div>
 
-        {error && <ErrorDisplay message={error} />}
-
-        {loading && !initialLoad && (
-          <div className="audit-loading-overlay">
-            <div className="audit-loading-spinner"></div>
+        {hasActiveFilters && (
+          <div className="audit-active-filters">
+            {searchTerm && (<span className="active-filter-badge">Search: "{searchTerm}"<button onClick={clearSearch}>×</button></span>)}
+            {adminFilter && (<span className="active-filter-badge">Admin: {adminFilter}<button onClick={() => setAdminFilter('')}>×</button></span>)}
+            {actionFilter && (<span className="active-filter-badge">Action: {formatActionLabel(actionFilter)}<button onClick={clearActionFilter}>×</button></span>)}
+            <button className="audit-clear-filters" onClick={clearFilters}>Clear All</button>
           </div>
         )}
 
-        {displayLogs.length === 0 && !loading ? (
+        {error && <ErrorDisplay message={error} />}
+
+        {loading && !initialLoad && (<div className="audit-loading-overlay"><div className="audit-loading-spinner"></div></div>)}
+
+        {logs.length === 0 && !loading ? (
           <div className="audit-empty">
-            <div className="audit-empty-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
+            <div className="audit-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div>
             <h3 className="audit-empty-title">No audit logs found</h3>
-            <p className="audit-empty-message">
-              {actionFilter ? `No logs found with action "${formatActionLabel(actionFilter)}".` : "No logs match your current filters."}
-            </p>
-            {actionFilter && (
-              <button className="audit-empty-btn" onClick={clearActionFilter}>Clear Action Filter</button>
-            )}
+            <p className="audit-empty-message">{hasActiveFilters ? "No logs match your current filters." : "No audit logs available."}</p>
+            {hasActiveFilters && (<button className="audit-empty-btn" onClick={clearFilters}>Clear All Filters</button>)}
           </div>
         ) : (
           <>
+            <div className="audit-results-summary">
+              <span>Showing {logs.length} of {pagination.total} logs</span>
+              {isSearching && <span className="searching-indicator">Searching...</span>}
+            </div>
+
             <div className="audit-table-container">
               <table className="audit-table">
                 <thead>
@@ -540,8 +495,8 @@ useEffect(() => {
                   </tr>
                 </thead>
                 <tbody>
-                  {displayLogs.map((log) => (
-                    <tr key={log.id} onClick={() => handleRowClick(log.id)} className={`audit-row ${selectedRowId === log.id ? 'selected' : ''}`} style={{ cursor: 'pointer' }}>
+                  {logs.map((log) => (
+                    <tr key={log.id} onClick={() => handleViewLog(log.id)} className={`audit-row ${selectedRowId === log.id ? 'selected' : ''}`} style={{ cursor: 'pointer' }}>
                       <td>
                         <div className="audit-timestamp">
                           <span className="audit-timestamp-icon">🕒</span>
@@ -621,9 +576,7 @@ useEffect(() => {
           log={selectedLog} 
           loading={modalLoading}
           onDelete={handleDeleteLog}
-          onDeleted={() => {
-            console.log('Log deleted successfully');
-          }}
+          onDeleted={() => { console.log('Log deleted successfully'); }}
         />
       )}
     </div>

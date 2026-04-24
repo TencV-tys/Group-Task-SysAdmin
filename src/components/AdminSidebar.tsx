@@ -45,7 +45,6 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   const [groupsWithReportsCount, setGroupsWithReportsCount] = useState<number>(0);
   
   const isMountedRef = useRef(true);
-  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const initialLoadDoneRef = useRef(false);
 
   // ========== FETCH ALL COUNTS (COMPLETE REFRESH) ==========
@@ -153,132 +152,113 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     };
   }, [fetchAllCounts]);
 
+ 
   // ========== SETUP SOCKET SUBSCRIPTIONS ==========
-  useEffect(() => {
-    isMountedRef.current = true;
-    
-    console.log('🎧 [SIDEBAR] Setting up socket subscriptions...');
-    
-    const unsubscribeFeedbackStatus = subscribe('feedback:status', () => {
-      refreshFeedbackCount();
-    });
-    
-    const unsubscribeFeedbackDeleted = subscribe('feedback:deleted', () => {
-      refreshFeedbackCount();
-    });
-    
-    const unsubscribeFeedbackNew = subscribe('feedback:new', () => {
-      refreshFeedbackCount();
-    });
-    
-    const unsubscribeFeedbackUpdated = subscribe('feedback:updated', () => {
-      refreshFeedbackCount();
-    });
-    
-    const unsubscribeNotificationNew = subscribe('notification:new', () => {
-      refreshNotificationCount();
-    });
-    
-    const unsubscribeNotificationRead = subscribe('notification:read', () => {
-      refreshNotificationCount();
-    });
-    
-    const unsubscribeNotificationReadAll = subscribe('notification:read:all', () => {
-      refreshNotificationCount();
-    });
-    
-    const unsubscribeNotificationDeleted = subscribe('notification:deleted', () => {
-      refreshNotificationCount();
-    });
-    
-    const unsubscribeReportStatus = subscribe('report:status', () => {
-      refreshReportCount();
-    });
-    
-    const unsubscribeReportDeleted = subscribe('report:deleted', () => {
-      refreshReportCount();
-    });
-    
-    const unsubscribeReportsBulkUpdated = subscribe('reports:bulk-updated', () => {
-      refreshReportCount();
-    });
-    
-    const unsubscribeUserCreated = subscribe('feedback:user:created', (data) => {
-      console.log('📢 [SIDEBAR] User created feedback event (fallback):', data);
-      refreshFeedbackCount();
-    });
+useEffect(() => {
+  isMountedRef.current = true;
+  
+  console.log('🎧 [SIDEBAR] Setting up socket subscriptions...');
+  
+  // Feedback events
+  const unsubscribeFeedbackStatus = subscribe('feedback:status', () => refreshFeedbackCount());
+  const unsubscribeFeedbackDeleted = subscribe('feedback:deleted', () => refreshFeedbackCount());
+  const unsubscribeFeedbackNew = subscribe('feedback:new', () => refreshFeedbackCount());
+  const unsubscribeFeedbackUpdated = subscribe('feedback:updated', () => refreshFeedbackCount());
+  
+  // Notification events
+  const unsubscribeNotificationNew = subscribe('notification:new', () => refreshNotificationCount());
+  const unsubscribeNotificationRead = subscribe('notification:read', () => refreshNotificationCount());
+  const unsubscribeNotificationReadAll = subscribe('notification:read:all', () => refreshNotificationCount());
+  const unsubscribeNotificationDeleted = subscribe('notification:deleted', () => refreshNotificationCount());
+  
+  // Report events - ✅ ADD THESE
+  const unsubscribeReportNew = subscribe('report:new', () => {
+    console.log('📢 [SIDEBAR] New report received');
+    refreshGroupsWithReportsCount();
+    refreshReportCount();
+  });
+  
+  const unsubscribeReportStatus = subscribe('report:status', () => {
+    console.log('📢 [SIDEBAR] Report status changed');
+    refreshGroupsWithReportsCount();
+    refreshReportCount();
+  });
+  
+  const unsubscribeReportDeleted = subscribe('report:deleted', () => {
+    console.log('📢 [SIDEBAR] Report deleted');
+    refreshGroupsWithReportsCount();
+    refreshReportCount();
+  });
+  
+  // Group events
+  const unsubscribeGroupReportCountUpdated = subscribe('group:report_count_updated', () => {
+    console.log('📢 [SIDEBAR] Group report count updated');
+    refreshGroupsWithReportsCount();
+    refreshReportCount();
+  });
+  
+  const unsubscribeGroupDeleted = subscribe('group:deleted', () => {
+    console.log('📢 [SIDEBAR] Group deleted');
+    refreshGroupsWithReportsCount();
+  });
+  
+  const unsubscribeGroupSuspended = subscribe('group:suspended', () => {
+    console.log('📢 [SIDEBAR] Group suspended');
+    refreshGroupsWithReportsCount();
+  });
+  
+  const unsubscribeGroupRestored = subscribe('group:restored', () => {
+    console.log('📢 [SIDEBAR] Group restored');
+    refreshGroupsWithReportsCount();
+  });
+  
+  const unsubscribeGroupAdminAction = subscribe('group:admin_action', () => {
+    console.log('📢 [SIDEBAR] Group admin action');
+    refreshGroupsWithReportsCount();
+  });
 
-    const unsubscribeGroupReportCountUpdated = subscribe('group:report_count_updated', () => {
-      console.log('📢 [SIDEBAR] Group report count updated, refreshing groups with reports count...');
-      refreshGroupsWithReportsCount();
-    });
-
-    const unsubscribeGroupDeleted = subscribe('group:deleted', () => {
-      console.log('📢 [SIDEBAR] Group deleted, refreshing groups with reports count...');
-      refreshGroupsWithReportsCount();
-    });
-
-    const unsubscribeGroupSuspended = subscribe('group:suspended', () => {
-      console.log('📢 [SIDEBAR] Group suspended, refreshing groups with reports count...');
-      refreshGroupsWithReportsCount();
-    });
-
-    const unsubscribeGroupRestored = subscribe('group:restored', () => {
-      console.log('📢 [SIDEBAR] Group restored, refreshing groups with reports count...');
-      refreshGroupsWithReportsCount();
-    });
-
-    const unsubscribeGroupAdminAction = subscribe('group:admin_action', () => {
-      console.log('📢 [SIDEBAR] Group admin action, refreshing groups with reports count...');
-      refreshGroupsWithReportsCount();
-    });
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden && isMountedRef.current) {
-        console.log('👁️ [SIDEBAR] Page became visible, refreshing counts...');
-        fetchAllCounts();
-      }
-    };
-     
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+  // Visibility change and interval
+  const handleVisibilityChange = () => {
+    if (!document.hidden && isMountedRef.current) {
+      console.log('👁️ [SIDEBAR] Page became visible, refreshing counts...');
+      fetchAllCounts();
+    }
+  };
+  
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  
+  const intervalId = setInterval(() => {
+    if (isMountedRef.current) {
+      console.log('⏰ [SIDEBAR] Periodic refresh...');
+      fetchAllCounts();
+    }
+  }, 30000);
+  
+  return () => {
+    console.log('🧹 [SIDEBAR] Cleaning up...');
+    isMountedRef.current = false;
     
-    const intervalId = setInterval(() => {
-      if (isMountedRef.current) {
-        console.log('⏰ [SIDEBAR] Periodic refresh...');
-        fetchAllCounts();
-      }
-    }, 30000);
+    unsubscribeFeedbackStatus();
+    unsubscribeFeedbackDeleted();
+    unsubscribeFeedbackNew();
+    unsubscribeFeedbackUpdated();
+    unsubscribeNotificationNew();
+    unsubscribeNotificationRead();
+    unsubscribeNotificationReadAll();
+    unsubscribeNotificationDeleted();
+    unsubscribeReportNew();
+    unsubscribeReportStatus();
+    unsubscribeReportDeleted();
+    unsubscribeGroupReportCountUpdated();
+    unsubscribeGroupDeleted();
+    unsubscribeGroupSuspended();
+    unsubscribeGroupRestored();
+    unsubscribeGroupAdminAction();
     
-    const timeoutId = refreshTimeoutRef.current;
-    
-    return () => {
-      console.log('🧹 [SIDEBAR] Cleaning up...');
-      isMountedRef.current = false;
-      unsubscribeFeedbackStatus();
-      unsubscribeFeedbackDeleted();
-      unsubscribeFeedbackNew();
-      unsubscribeUserCreated();
-      unsubscribeFeedbackUpdated();
-      unsubscribeNotificationNew();
-      unsubscribeNotificationRead();
-      unsubscribeNotificationReadAll();
-      unsubscribeNotificationDeleted();
-      unsubscribeReportStatus();
-      unsubscribeReportDeleted();
-      unsubscribeReportsBulkUpdated();
-      unsubscribeGroupReportCountUpdated();
-      unsubscribeGroupDeleted();
-      unsubscribeGroupSuspended();
-      unsubscribeGroupRestored();
-      unsubscribeGroupAdminAction();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearInterval(intervalId);
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [subscribe, refreshFeedbackCount, refreshNotificationCount, refreshReportCount, refreshGroupsWithReportsCount, fetchAllCounts]);
-
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    clearInterval(intervalId);
+  };
+}, [subscribe, refreshFeedbackCount, refreshNotificationCount, refreshReportCount, refreshGroupsWithReportsCount, fetchAllCounts]);
 
 
   useEffect(() => {
@@ -294,7 +274,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
   };
 
   const handleLogout = async () => {
-    console.log('🚪 [SIDEBAR] Logging out...');
+    console.log('🚪 [SIDEBAR] Logging out...'); 
     await logout();
     navigate('/admin/login');
   };

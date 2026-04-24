@@ -11,7 +11,153 @@
   padding: 32px;
   width: 100%;
 }
+/* Search input with clear button */
+.groups-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
 
+.groups-search-clear {
+  position: absolute;
+  right: 100px;
+  background: none;
+  border: none;
+  color: #868e96;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 14px;
+  z-index: 2;
+}
+
+.groups-search-clear:hover {
+  color: #fa5252;
+}
+
+/* Search spinner */
+.groups-search-spinner {
+  position: absolute;
+  right: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #e9ecef;
+  border-top-color: #1c7ed6;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Active filter badges */
+.groups-active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e9ecef;
+}
+
+.active-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: #f1f3f5;
+  border-radius: 20px;
+  font-size: 12px;
+  color: #495057;
+}
+
+.active-filter-badge button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 4px;
+  color: #868e96;
+  display: flex;
+  align-items: center;
+}
+
+.active-filter-badge button:hover {
+  color: #fa5252;
+}
+
+.groups-clear-filters {
+  padding: 4px 12px;
+  background: none;
+  border: 1px solid #dee2e6;
+  border-radius: 20px;
+  font-size: 12px;
+  color: #868e96;
+  cursor: pointer;
+}
+
+.groups-clear-filters:hover {
+  background: #f8f9fa;
+  border-color: #fa5252;
+  color: #fa5252;
+}
+
+/* Searching indicator */
+.searching-indicator {
+  margin-left: 12px;
+  font-size: 12px;
+  color: #1c7ed6;
+  font-style: italic;
+}
+/* Add this to fix clear button positioning */
+.groups-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.groups-search-clear {
+  position: absolute;
+  right: 100px;  /* This might need adjustment based on your layout */
+  background: none;
+  border: none;
+  color: #868e96;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 14px;
+  z-index: 2;
+}
+
+/* Better positioning - responsive */
+@media (max-width: 640px) {
+  .groups-search-clear {
+    right: 80px;
+  }
+}
+
+.groups-search-clear:hover {
+  color: #fa5252;
+}
+
+.groups-results-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #868e96;
+}
 /* Header */
 .groups-header {
   display: flex;
@@ -366,7 +512,7 @@
 
 .groups-active-filters {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin-top: 8px;
 }
 

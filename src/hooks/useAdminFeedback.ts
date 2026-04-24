@@ -1,4 +1,4 @@
-// hooks/useAdminFeedback.ts - COMPLETE REAL-TIME VERSION
+// hooks/useAdminFeedback.ts - WITHOUT statsUpdateTrigger
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { AdminFeedbackService } from '../services/admin.feedback.service';
@@ -10,7 +10,7 @@ import type {
   UpdateStatusResponse,
   DeleteResponse
 } from '../services/admin.feedback.service';
-
+ 
 export function useAdminFeedback() {
   const [feedback, setFeedback] = useState<Feedback[]>([]);
   const [loading, setLoading] = useState(false);
@@ -20,17 +20,12 @@ export function useAdminFeedback() {
   const [actionLoading, setActionLoading] = useState(false);
   const [hasNewFeedback, setHasNewFeedback] = useState(false);
   const [filters, setFilters] = useState<FeedbackFilters>({ page: 1, limit: 10 });
-  
-  // ✅ FORCE RE-RENDER TRACKER
-  const [statsUpdateTrigger, setStatsUpdateTrigger] = useState(0);
 
   const isMountedRef = useRef(true);
   const initialLoadDoneRef = useRef(false);
   const isDeletingRef = useRef(false);
   const filtersRef = useRef<FeedbackFilters>({ page: 1, limit: 10 });
-  const lastStatsRef = useRef<string>('');
 
-  // Sequence counters for race condition prevention
   const fetchSeqRef = useRef(0);
   const userSeqRef = useRef(0);
   const bgDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -93,22 +88,15 @@ export function useAdminFeedback() {
 
   // ─── fetchGlobalStats ───────────────────────────────────────────────────────
   const fetchGlobalStats = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     try {
       const result = await AdminFeedbackService.getFeedbackStats();
       if (result.success && result.data && isMountedRef.current) {
-        const str = JSON.stringify(result.data);
-        if (str !== lastStatsRef.current) {
-          setGlobalStats({ ...result.data });
-          lastStatsRef.current = str;
-          // ✅ INCREMENT TRIGGER TO FORCE RE-RENDER
-          setStatsUpdateTrigger(prev => prev + 1);
-        }
-        return { success: true, data: result.data };
+        setGlobalStats({ ...result.data });
       }
-      return { success: false };
     } catch (err) {
       console.error('[fetchGlobalStats]', err);
-      return { success: false };
     }
   }, []);
 
@@ -122,7 +110,7 @@ export function useAdminFeedback() {
       if (!isMountedRef.current) return;
       fetchFeedback(undefined, false);
       fetchGlobalStats();
-    }, 100); // ✅ Reduced to 100ms for faster response
+    }, 200);
   }, [fetchFeedback, fetchGlobalStats]);
 
   // ─── getFeedbackDetails ─────────────────────────────────────────────────────
@@ -140,7 +128,6 @@ export function useAdminFeedback() {
 
     const myUserSeq = ++userSeqRef.current;
 
-    // ✅ Optimistic update - change status immediately in UI
     setFeedback(prev =>
       prev.map(f => f.id === feedbackId ? { ...f, status: newStatus } : f)
     );
@@ -150,7 +137,6 @@ export function useAdminFeedback() {
       if (result.success && isMountedRef.current) {
         const activeStatusFilter = filtersRef.current.status;
 
-        // If filtering by status, remove item if it no longer matches
         if (activeStatusFilter && activeStatusFilter !== newStatus) {
           setFeedback(prev => prev.filter(f => f.id !== feedbackId));
         }
@@ -162,14 +148,11 @@ export function useAdminFeedback() {
             fetchFeedback(undefined, false),
             fetchGlobalStats(),
           ]);
-          // ✅ Force re-render
-          setStatsUpdateTrigger(prev => prev + 1);
         }
       }
       return result;
     } catch (err) {
       console.error('[updateStatus]', err);
-      // Rollback on error
       await fetchFeedback(undefined, false);
       return { success: false, message: 'Failed to update status' };
     } finally {
@@ -185,7 +168,6 @@ export function useAdminFeedback() {
 
     const myUserSeq = ++userSeqRef.current;
 
-    // ✅ Optimistic remove immediately
     setFeedback(prev => prev.filter(f => f.id !== feedbackId));
 
     if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current);
@@ -197,8 +179,6 @@ export function useAdminFeedback() {
           fetchFeedback(undefined, false),
           fetchGlobalStats(),
         ]);
-        // ✅ Force re-render
-        setStatsUpdateTrigger(prev => prev + 1);
       }
       return result;
     } catch (err) {
@@ -228,12 +208,10 @@ export function useAdminFeedback() {
     if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current);
     ++userSeqRef.current;
     await Promise.all([fetchFeedback(undefined, true), fetchGlobalStats()]);
-    setStatsUpdateTrigger(prev => prev + 1);
   }, [fetchFeedback, fetchGlobalStats]);
 
   // ─── Socket listeners ───────────────────────────────────────────────────────
   useEffect(() => {
-    // ✅ Immediate status update from socket
     const handleStatusChange = (data: any) => {
       if (!isMountedRef.current) return;
       console.log('[Socket] feedback:status received', data);
@@ -244,7 +222,7 @@ export function useAdminFeedback() {
       }
       backgroundRefresh();
     };
-
+ 
     const handleNew = () => {
       if (!isMountedRef.current) return;
       console.log('[Socket] feedback:new received');
@@ -280,14 +258,15 @@ export function useAdminFeedback() {
     };
   }, [backgroundRefresh]);
 
-  // ─── Initial load ───────────────────────────────────────────────────────────
+  // ─── Initial load - ONLY ONCE ───────────────────────────────────────────────
   useEffect(() => {
     if (!initialLoadDoneRef.current) {
       initialLoadDoneRef.current = true;
       fetchFeedback({ page: 1, limit: 10 }, true);
       fetchGlobalStats();
     }
-  }, [fetchFeedback, fetchGlobalStats]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return {
     feedback,
@@ -298,7 +277,6 @@ export function useAdminFeedback() {
     actionLoading,
     hasNewFeedback,
     currentFilters: filters,
-    statsUpdateTrigger, // ✅ EXPORT TRIGGER
     fetchFeedback,
     fetchGlobalStats,
     getFeedbackDetails,
