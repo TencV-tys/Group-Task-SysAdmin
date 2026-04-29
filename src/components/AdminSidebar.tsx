@@ -1,4 +1,4 @@
-// layouts/AdminSidebar.tsx - FIXED (removed unused getBadgeType)
+// layouts/AdminSidebar.tsx - UPDATED with GT Logo Image
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -12,7 +12,7 @@ import {
   faTimes,
   faChevronLeft,
   faChevronRight,
-  faCrown,
+
   faFlag,
   faHistory,
   faLayerGroup,
@@ -152,114 +152,112 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
     };
   }, [fetchAllCounts]);
 
- 
   // ========== SETUP SOCKET SUBSCRIPTIONS ==========
-useEffect(() => {
-  isMountedRef.current = true;
-  
-  console.log('🎧 [SIDEBAR] Setting up socket subscriptions...');
-  
-  // Feedback events
-  const unsubscribeFeedbackStatus = subscribe('feedback:status', () => refreshFeedbackCount());
-  const unsubscribeFeedbackDeleted = subscribe('feedback:deleted', () => refreshFeedbackCount());
-  const unsubscribeFeedbackNew = subscribe('feedback:new', () => refreshFeedbackCount());
-  const unsubscribeFeedbackUpdated = subscribe('feedback:updated', () => refreshFeedbackCount());
-  
-  // Notification events
-  const unsubscribeNotificationNew = subscribe('notification:new', () => refreshNotificationCount());
-  const unsubscribeNotificationRead = subscribe('notification:read', () => refreshNotificationCount());
-  const unsubscribeNotificationReadAll = subscribe('notification:read:all', () => refreshNotificationCount());
-  const unsubscribeNotificationDeleted = subscribe('notification:deleted', () => refreshNotificationCount());
-  
-  // Report events - ✅ ADD THESE
-  const unsubscribeReportNew = subscribe('report:new', () => {
-    console.log('📢 [SIDEBAR] New report received');
-    refreshGroupsWithReportsCount();
-    refreshReportCount();
-  });
-  
-  const unsubscribeReportStatus = subscribe('report:status', () => {
-    console.log('📢 [SIDEBAR] Report status changed');
-    refreshGroupsWithReportsCount();
-    refreshReportCount();
-  });
-  
-  const unsubscribeReportDeleted = subscribe('report:deleted', () => {
-    console.log('📢 [SIDEBAR] Report deleted');
-    refreshGroupsWithReportsCount();
-    refreshReportCount();
-  });
-  
-  // Group events
-  const unsubscribeGroupReportCountUpdated = subscribe('group:report_count_updated', () => {
-    console.log('📢 [SIDEBAR] Group report count updated');
-    refreshGroupsWithReportsCount();
-    refreshReportCount();
-  });
-  
-  const unsubscribeGroupDeleted = subscribe('group:deleted', () => {
-    console.log('📢 [SIDEBAR] Group deleted');
-    refreshGroupsWithReportsCount();
-  });
-  
-  const unsubscribeGroupSuspended = subscribe('group:suspended', () => {
-    console.log('📢 [SIDEBAR] Group suspended');
-    refreshGroupsWithReportsCount();
-  });
-  
-  const unsubscribeGroupRestored = subscribe('group:restored', () => {
-    console.log('📢 [SIDEBAR] Group restored');
-    refreshGroupsWithReportsCount();
-  });
-  
-  const unsubscribeGroupAdminAction = subscribe('group:admin_action', () => {
-    console.log('📢 [SIDEBAR] Group admin action');
-    refreshGroupsWithReportsCount();
-  });
-
-  // Visibility change and interval
-  const handleVisibilityChange = () => {
-    if (!document.hidden && isMountedRef.current) {
-      console.log('👁️ [SIDEBAR] Page became visible, refreshing counts...');
-      fetchAllCounts();
-    }
-  };
-  
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-  
-  const intervalId = setInterval(() => {
-    if (isMountedRef.current) {
-      console.log('⏰ [SIDEBAR] Periodic refresh...');
-      fetchAllCounts();
-    }
-  }, 30000);
-  
-  return () => {
-    console.log('🧹 [SIDEBAR] Cleaning up...');
-    isMountedRef.current = false;
+  useEffect(() => {
+    isMountedRef.current = true;
     
-    unsubscribeFeedbackStatus();
-    unsubscribeFeedbackDeleted();
-    unsubscribeFeedbackNew();
-    unsubscribeFeedbackUpdated();
-    unsubscribeNotificationNew();
-    unsubscribeNotificationRead();
-    unsubscribeNotificationReadAll();
-    unsubscribeNotificationDeleted();
-    unsubscribeReportNew();
-    unsubscribeReportStatus();
-    unsubscribeReportDeleted();
-    unsubscribeGroupReportCountUpdated();
-    unsubscribeGroupDeleted();
-    unsubscribeGroupSuspended();
-    unsubscribeGroupRestored();
-    unsubscribeGroupAdminAction();
+    console.log('🎧 [SIDEBAR] Setting up socket subscriptions...');
     
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-    clearInterval(intervalId);
-  };
-}, [subscribe, refreshFeedbackCount, refreshNotificationCount, refreshReportCount, refreshGroupsWithReportsCount, fetchAllCounts]);
+    // Feedback events
+    const unsubscribeFeedbackStatus = subscribe('feedback:status', () => refreshFeedbackCount());
+    const unsubscribeFeedbackDeleted = subscribe('feedback:deleted', () => refreshFeedbackCount());
+    const unsubscribeFeedbackNew = subscribe('feedback:new', () => refreshFeedbackCount());
+    const unsubscribeFeedbackUpdated = subscribe('feedback:updated', () => refreshFeedbackCount());
+    
+    // Notification events
+    const unsubscribeNotificationNew = subscribe('notification:new', () => refreshNotificationCount());
+    const unsubscribeNotificationRead = subscribe('notification:read', () => refreshNotificationCount());
+    const unsubscribeNotificationReadAll = subscribe('notification:read:all', () => refreshNotificationCount());
+    const unsubscribeNotificationDeleted = subscribe('notification:deleted', () => refreshNotificationCount());
+    
+    // Report events
+    const unsubscribeReportNew = subscribe('report:new', () => {
+      console.log('📢 [SIDEBAR] New report received');
+      refreshGroupsWithReportsCount();
+      refreshReportCount();
+    });
+    
+    const unsubscribeReportStatus = subscribe('report:status', () => {
+      console.log('📢 [SIDEBAR] Report status changed');
+      refreshGroupsWithReportsCount();
+      refreshReportCount();
+    });
+    
+    const unsubscribeReportDeleted = subscribe('report:deleted', () => {
+      console.log('📢 [SIDEBAR] Report deleted');
+      refreshGroupsWithReportsCount();
+      refreshReportCount();
+    });
+    
+    // Group events
+    const unsubscribeGroupReportCountUpdated = subscribe('group:report_count_updated', () => {
+      console.log('📢 [SIDEBAR] Group report count updated');
+      refreshGroupsWithReportsCount();
+      refreshReportCount();
+    });
+    
+    const unsubscribeGroupDeleted = subscribe('group:deleted', () => {
+      console.log('📢 [SIDEBAR] Group deleted');
+      refreshGroupsWithReportsCount();
+    });
+    
+    const unsubscribeGroupSuspended = subscribe('group:suspended', () => {
+      console.log('📢 [SIDEBAR] Group suspended');
+      refreshGroupsWithReportsCount();
+    });
+    
+    const unsubscribeGroupRestored = subscribe('group:restored', () => {
+      console.log('📢 [SIDEBAR] Group restored');
+      refreshGroupsWithReportsCount();
+    });
+    
+    const unsubscribeGroupAdminAction = subscribe('group:admin_action', () => {
+      console.log('📢 [SIDEBAR] Group admin action');
+      refreshGroupsWithReportsCount();
+    });
 
+    // Visibility change and interval
+    const handleVisibilityChange = () => {
+      if (!document.hidden && isMountedRef.current) {
+        console.log('👁️ [SIDEBAR] Page became visible, refreshing counts...');
+        fetchAllCounts();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    const intervalId = setInterval(() => {
+      if (isMountedRef.current) {
+        console.log('⏰ [SIDEBAR] Periodic refresh...');
+        fetchAllCounts();
+      }
+    }, 30000);
+    
+    return () => {
+      console.log('🧹 [SIDEBAR] Cleaning up...');
+      isMountedRef.current = false;
+      
+      unsubscribeFeedbackStatus();
+      unsubscribeFeedbackDeleted();
+      unsubscribeFeedbackNew();
+      unsubscribeFeedbackUpdated();
+      unsubscribeNotificationNew();
+      unsubscribeNotificationRead();
+      unsubscribeNotificationReadAll();
+      unsubscribeNotificationDeleted();
+      unsubscribeReportNew();
+      unsubscribeReportStatus();
+      unsubscribeReportDeleted();
+      unsubscribeGroupReportCountUpdated();
+      unsubscribeGroupDeleted();
+      unsubscribeGroupSuspended();
+      unsubscribeGroupRestored();
+      unsubscribeGroupAdminAction();
+      
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(intervalId);
+    };
+  }, [subscribe, refreshFeedbackCount, refreshNotificationCount, refreshReportCount, refreshGroupsWithReportsCount, fetchAllCounts]);
 
   useEffect(() => {
     console.log('🟢 [SIDEBAR] MOUNTED');
@@ -286,7 +284,7 @@ useEffect(() => {
     return role.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
   };
 
-  // ✅ Define menu items with their specific badge types
+  // Define menu items with their specific badge types
   const menuItems = [
     { 
       path: '/admin/dashboard', 
@@ -351,8 +349,13 @@ useEffect(() => {
       <aside className={`admin-sidebar ${collapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-header">
           <div className="logo-container">
-            <div className="logo">
-              <FontAwesomeIcon icon={faCrown} size="lg" />
+            {/* ✅ Updated: Use GT Logo Image instead of Crown Icon */}
+            <div className="logo logo-image-wrapper">
+              <img 
+                src="/src/assets/GTRLOGO.jpeg" 
+                alt="GroupTask Logo" 
+                className="sidebar-logo-image"
+              />
             </div>
             {!collapsed && <span className="logo-text">Admin Dashboard</span>}
           </div>

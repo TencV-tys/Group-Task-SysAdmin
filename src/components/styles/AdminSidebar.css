@@ -68,7 +68,35 @@
   background: linear-gradient(135deg, var(--badge-feedback) 0%, var(--badge-feedback-dark) 100%);
   color: white;
 }
+/* Add after .logo styles */
+.logo-image-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
 
+.logo-image-wrapper:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(43, 138, 62, 0.3);
+}
+
+.sidebar-logo-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 4px;
+}
+
+/* Collapsed state */
+.admin-sidebar.collapsed .logo-image-wrapper {
+  width: 36px;
+  height: 36px;
+}
 /* Notifications badge - Blue/Info */
 .nav-badge.info {
   background: linear-gradient(135deg, var(--badge-info) 0%, var(--badge-info-dark) 100%);
@@ -252,14 +280,13 @@
 .logo-container {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 13px;
   overflow: hidden;
 }
 
 .logo {
   width: 40px;
   height: 40px;
-  background: linear-gradient(135deg, var(--sidebar-accent) 0%, var(--sidebar-accent-dark) 100%);
   border-radius: 10px;
   display: flex;
   align-items: center;

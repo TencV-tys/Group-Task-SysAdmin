@@ -1,4 +1,4 @@
-// services/admin.auth.service.ts - FIXED to store token
+// services/admin.auth.service.ts
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -21,6 +21,9 @@ export interface AdminLoginResponse {
   message: string;
   admin?: Admin;
   token?: string;
+  remainingAttempts?: number;
+  isLocked?: boolean;
+  lockoutMinutes?: number;
 }
 
 class AdminAuthServiceClass {
@@ -45,8 +48,6 @@ class AdminAuthServiceClass {
 
   static async login(data: AdminLoginCredentials): Promise<AdminLoginResponse> {
     try {
-      console.log("🔍 Admin login attempt:", data.email);
-      
       const headers = await this.getHeaders(true, false);
       
       const response = await fetch(`${API_URL}/api/auth/admins/login`, {
@@ -57,24 +58,29 @@ class AdminAuthServiceClass {
       });
 
       const result = await response.json();
-      console.log("🔍 Admin login response:", result);
       
-      // ✅ STORE TOKEN when login is successful
+      // Handle rate limiting (429 status code)
+      if (response.status === 429 || result.remainingAttempts !== undefined) {
+        return {
+          success: false,
+          message: result.message || 'Too many failed attempts',
+          remainingAttempts: result.remainingAttempts,
+          isLocked: result.isLocked,
+          lockoutMinutes: result.lockoutMinutes
+        };
+      }
+      
+      // Store token when login is successful
       if (result.success && result.token) {
         localStorage.setItem(this.tokenKey, result.token);
-        console.log('🔐 Admin token stored in localStorage');
         
-        // Also store admin data
         if (result.admin) {
           localStorage.setItem('adminData', JSON.stringify(result.admin));
         }
       }
       
       return result;
-
     } catch (error: unknown) {
-      console.error("Admin login error:", error);
-      
       let errorMessage = "Cannot connect to the server";
       
       if (error instanceof Error) {
@@ -90,14 +96,10 @@ class AdminAuthServiceClass {
 
   static async getCurrentAdmin(): Promise<Admin | null> {
     try {
-      console.log("🔍 Getting current admin...");
-      
-      // ✅ First try to get from localStorage
       const cachedAdmin = localStorage.getItem('adminData');
       if (cachedAdmin) {
         try {
           const admin = JSON.parse(cachedAdmin);
-          console.log("📦 Using cached admin data");
           return admin;
         } catch (e) {
           console.error(e)
@@ -107,7 +109,6 @@ class AdminAuthServiceClass {
       
       const token = this.getAccessToken();
       if (!token) {
-        console.log("❌ No admin token found");
         return null;
       }
       
@@ -121,7 +122,6 @@ class AdminAuthServiceClass {
 
       if (!response.ok) {
         if (response.status === 401) {
-          console.log("🔍 Not authenticated");
           this.clearToken();
           return null;
         }
@@ -129,16 +129,13 @@ class AdminAuthServiceClass {
       }
 
       const result = await response.json();
-      console.log("🔍 Get current admin response:", result);
       
       if (result.success && result.admin) {
-        // Cache admin data
         localStorage.setItem('adminData', JSON.stringify(result.admin));
         return result.admin;
       }
       
       return null;
-
     } catch (error) {
       console.error("Error getting current admin:", error);
       return null;
@@ -146,47 +143,41 @@ class AdminAuthServiceClass {
   }
 
   static async logout(): Promise<{ success: boolean; message: string }> {
-  try {
-    const token = this.getAccessToken();
-    
-    const headers = await this.getHeaders(true, true);
-    
-    // ✅ Use the token in the request
-    const response = await fetch(`${API_URL}/api/auth/admins/logout`, {
-      method: "POST",
-      credentials: 'include',
-      headers: {
-        ...headers,
-        'Authorization': `Bearer ${token}`
+    try {
+      const token = this.getAccessToken();
+      const headers = await this.getHeaders(true, true);
+      
+      await fetch(`${API_URL}/api/auth/admins/logout`, {
+        method: "POST",
+        credentials: 'include',
+        headers: {
+          ...headers,
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      this.clearToken();
+      localStorage.removeItem('adminData');
+      
+      return {
+        success: true,
+        message: "Logged out successfully"
+      };
+    } catch (error: unknown) {
+      this.clearToken();
+      localStorage.removeItem('adminData');
+      
+      let errorMessage = "Cannot connect to the server";
+      if (error instanceof Error) {
+        errorMessage = error.message;
       }
-    });
-
-    // Clear stored tokens regardless of response
-    this.clearToken();
-    localStorage.removeItem('adminData');
-
-    const result = await response.json();
-    return result;
-
-  } catch (error: unknown) {
-    console.error("Admin logout error:", error);
-    
-    // Still clear tokens on error
-    this.clearToken();
-    localStorage.removeItem('adminData');
-    
-    let errorMessage = "Cannot connect to the server";
-    
-    if (error instanceof Error) {
-      errorMessage = error.message;
+      
+      return {
+        success: false,
+        message: errorMessage
+      };
     }
-    
-    return {
-      success: false,
-      message: errorMessage
-    };
   }
-}
 
   static getAccessToken(): string | null {
     try {
@@ -211,7 +202,6 @@ class AdminAuthServiceClass {
 }
 
 export const AdminAuthService = AdminAuthServiceClass;
-
 export const getAdminAccessToken = (): string | null => {
   return AdminAuthService.getAccessToken();
 };
