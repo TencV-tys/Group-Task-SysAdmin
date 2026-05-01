@@ -26,6 +26,7 @@ import { AdminFeedbackService } from '../services/admin.feedback.service';
 import { AdminNotificationsService } from '../services/admin.notifications.service';
 import { AdminReportsService } from '../services/admin.report.services';
 import { AdminGroupsService } from '../services/admin.groups.service';
+import gtLogo from '../assets/GTRLOGO.jpeg';
 import './styles/AdminSidebar.css';
 
 interface SidebarProps {
@@ -343,7 +344,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
       warningIcon: null
     }
   ];
-
+ 
   return (
     <>
       <aside className={`admin-sidebar ${collapsed ? 'collapsed' : ''}`}>
@@ -352,7 +353,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
             {/* ✅ Updated: Use GT Logo Image instead of Crown Icon */}
             <div className="logo logo-image-wrapper">
               <img 
-                src="/src/assets/GTRLOGO.jpeg" 
+                src={gtLogo}
                 alt="GroupTask Logo" 
                 className="sidebar-logo-image"
               />
@@ -362,7 +363,7 @@ const AdminSidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle }) =
           <button className="toggle-btn" onClick={onToggle} aria-label="Toggle sidebar">
             <FontAwesomeIcon icon={collapsed ? faChevronRight : faChevronLeft} />
           </button>
-        </div>
+        </div> 
 
         <div className="admin-profile">
           <div className="profile-avatar">
