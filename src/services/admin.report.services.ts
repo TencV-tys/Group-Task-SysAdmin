@@ -1,5 +1,8 @@
-// services/admin.reports.service.ts
+// services/admin.reports.service.ts - WITH AUTH HEADER
 const API_URL = import.meta.env.VITE_API_URL;
+
+// Helper to get token
+const getToken = () => localStorage.getItem('adminAccessToken');
 
 export interface Report {
   id: string;
@@ -117,10 +120,16 @@ export interface UpdateReportStatusResponse {
 
 class AdminReportsServiceClass {
   private static async getHeaders(withJsonContent: boolean = true): Promise<HeadersInit> {
+    const token = getToken();
     const headers: HeadersInit = {};
     
     if (withJsonContent) {
       headers['Content-Type'] = 'application/json';
+    }
+    
+    // ✅ ADD AUTHORIZATION HEADER
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
     
     return headers;
@@ -239,58 +248,56 @@ class AdminReportsServiceClass {
     }
   }
 
-static async deleteReport(reportId: string, hardDelete: boolean = false): Promise<{ success: boolean; message: string }> {
-  try {
-    console.log('🗑️ Deleting report:', reportId, 'hardDelete:', hardDelete);
-    
-    const response = await fetch(`${API_URL}/api/admin/reports/${reportId}?hardDelete=${hardDelete}`, {
-      method: 'DELETE',
-      credentials: 'include',
-      headers: await this.getHeaders()
-    });
+  // ========== DELETE SINGLE REPORT ==========
+  static async deleteReport(reportId: string, hardDelete: boolean = false): Promise<{ success: boolean; message: string }> {
+    try {
+      console.log('🗑️ Deleting report:', reportId, 'hardDelete:', hardDelete);
+      
+      const response = await fetch(`${API_URL}/api/admin/reports/${reportId}?hardDelete=${hardDelete}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: await this.getHeaders()
+      });
 
-    const result = await response.json();
-    console.log('📦 Delete report response:', result);
-    
-    return result;
+      const result = await response.json();
+      console.log('📦 Delete report response:', result);
+      
+      return result;
 
-  } catch (error) {
-    console.error('❌ Error deleting report:', error);
-    return {
-      success: false,
-      message: 'Failed to delete report'
-    };
+    } catch (error) {
+      console.error('❌ Error deleting report:', error);
+      return {
+        success: false,
+        message: 'Failed to delete report'
+      };
+    }
   }
-}
 
-// Then update the bulkDeleteReports method:
+  // ========== BULK DELETE REPORTS ==========
+  static async bulkDeleteReports(reportIds: string[], hardDelete: boolean = false): Promise<BulkDeleteResponse> {
+    try {
+      console.log('🗑️ Bulk deleting reports:', reportIds.length, 'hardDelete:', hardDelete);
+      
+      const response = await fetch(`${API_URL}/api/admin/reports/bulk-delete`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: await this.getHeaders(true),
+        body: JSON.stringify({ reportIds, hardDelete })
+      });
 
-// ========== BULK DELETE REPORTS ==========
-static async bulkDeleteReports(reportIds: string[], hardDelete: boolean = false): Promise<BulkDeleteResponse> {
-  try {
-    console.log('🗑️ Bulk deleting reports:', reportIds.length, 'hardDelete:', hardDelete);
-    
-    const response = await fetch(`${API_URL}/api/admin/reports/bulk-delete`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: await this.getHeaders(true),
-      body: JSON.stringify({ reportIds, hardDelete })
-    });
+      const result = await response.json();
+      console.log('📦 Bulk delete response:', result);
+      
+      return result;
 
-    const result = await response.json();
-    console.log('📦 Bulk delete response:', result);
-    
-    return result;
-
-  } catch (error) {
-    console.error('❌ Error bulk deleting reports:', error);
-    return {
-      success: false,
-      message: 'Failed to bulk delete reports'
-    };
+    } catch (error) {
+      console.error('❌ Error bulk deleting reports:', error);
+      return {
+        success: false,
+        message: 'Failed to bulk delete reports'
+      };
+    }
   }
-}
-
 }
 
 export const AdminReportsService = AdminReportsServiceClass;

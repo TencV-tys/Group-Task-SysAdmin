@@ -1,6 +1,8 @@
-// services/admin.audit.service.ts - WITH DELETE METHOD
-
+// services/admin.audit.service.ts - WITH AUTH HEADER
 const API_URL = import.meta.env.VITE_API_URL;
+
+// Helper to get token
+const getToken = () => localStorage.getItem('adminAccessToken');
 
 export interface AuditLogFilters {
   adminId?: string;
@@ -120,38 +122,43 @@ export interface DeleteAuditLogResponse {
   message: string;
 }
 
+// Helper for headers with auth
+const getHeaders = async (withJsonContent: boolean = true): Promise<HeadersInit> => {
+  const token = getToken();
+  const headers: HeadersInit = {};
+  
+  if (withJsonContent) {
+    headers['Content-Type'] = 'application/json';
+  }
+  
+  // ✅ ADD AUTHORIZATION HEADER
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  return headers;
+};
+
 export class AdminAuditService {
   // ========== GET AUDIT LOGS ==========
-static async getLogs(filters?: AuditLogFilters): Promise<AuditLogsResponse> {
-  try {
-    const params = new URLSearchParams();
-    
-    if (filters) {
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== undefined && value !== '') {
-          params.append(key, value.toString());
-        }
-      });
-    }
-    
-    const queryString = params.toString();
-    const url = `${API_URL}/api/admin/audit${queryString ? `?${queryString}` : ''}`;
-    
-    const response = await fetch(url, {
-      credentials: 'include'
-      // ✅ No custom headers
-    });
-    return await response.json();
-  } catch {
-    return { success: false, message: 'Network error' };
-  }
-}
-
-  // ========== GET AUDIT LOG BY ID ==========
-  static async getLogById(logId: string): Promise<AuditLogResponse> {
+  static async getLogs(filters?: AuditLogFilters): Promise<AuditLogsResponse> {
     try {
-      const response = await fetch(`${API_URL}/api/admin/audit/${logId}`, {
-        credentials: 'include'
+      const params = new URLSearchParams();
+      
+      if (filters) {
+        Object.entries(filters).forEach(([key, value]) => {
+          if (value !== undefined && value !== '') {
+            params.append(key, value.toString());
+          }
+        });
+      }
+      
+      const queryString = params.toString();
+      const url = `${API_URL}/api/admin/audit${queryString ? `?${queryString}` : ''}`;
+      
+      const response = await fetch(url, {
+        credentials: 'include',
+        headers: await getHeaders(false)
       });
       return await response.json();
     } catch {
@@ -159,35 +166,50 @@ static async getLogs(filters?: AuditLogFilters): Promise<AuditLogsResponse> {
     }
   }
 
-static async getStatistics(filters?: { 
-  startDate?: string; 
-  endDate?: string;
-  _t?: string;
-}): Promise<AuditStatisticsResponse> { 
-  try {
-    const params = new URLSearchParams();
-    
-    if (filters) {
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== undefined && value !== '') {
-          params.append(key, value.toString());
-        }
+  // ========== GET AUDIT LOG BY ID ==========
+  static async getLogById(logId: string): Promise<AuditLogResponse> {
+    try {
+      const response = await fetch(`${API_URL}/api/admin/audit/${logId}`, {
+        credentials: 'include',
+        headers: await getHeaders(false)
       });
+      return await response.json();
+    } catch {
+      return { success: false, message: 'Network error' };
     }
-    
-    const queryString = params.toString();
-    const url = `${API_URL}/api/admin/audit/statistics${queryString ? `?${queryString}` : ''}`;
-    
-    const response = await fetch(url, {
-      credentials: 'include'
-      // ✅ Remove headers - they cause CORS issues
-    });
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching statistics:', error);
-    return { success: false, message: 'Network error' };
   }
-}
+
+  // ========== GET STATISTICS ==========
+  static async getStatistics(filters?: { 
+    startDate?: string; 
+    endDate?: string;
+    _t?: string;
+  }): Promise<AuditStatisticsResponse> { 
+    try {
+      const params = new URLSearchParams();
+      
+      if (filters) {
+        Object.entries(filters).forEach(([key, value]) => {
+          if (value !== undefined && value !== '') {
+            params.append(key, value.toString());
+          }
+        });
+      }
+      
+      const queryString = params.toString();
+      const url = `${API_URL}/api/admin/audit/statistics${queryString ? `?${queryString}` : ''}`;
+      
+      const response = await fetch(url, {
+        credentials: 'include',
+        headers: await getHeaders(false)
+      });
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching statistics:', error);
+      return { success: false, message: 'Network error' };
+    }
+  }
+
   // ========== EXPORT AUDIT LOGS ==========
   static async exportLogs(
     format?: 'json' | 'csv', 
@@ -210,7 +232,8 @@ static async getStatistics(filters?: {
       const url = `${API_URL}/api/admin/audit/export${queryString ? `?${queryString}` : ''}`;
       
       const response = await fetch(url, {
-        credentials: 'include'
+        credentials: 'include',
+        headers: await getHeaders(false)
       });
       
       if (format === 'csv') {
@@ -232,7 +255,8 @@ static async getStatistics(filters?: {
       
       const response = await fetch(url, {
         method: 'POST',
-        credentials: 'include'
+        credentials: 'include',
+        headers: await getHeaders(true)
       });
       return await response.json();
     } catch {
@@ -240,40 +264,38 @@ static async getStatistics(filters?: {
     }
   }
 
-// ========== DELETE SINGLE AUDIT LOG ==========
-static async deleteLog(logId: string): Promise<DeleteAuditLogResponse> {
-  try {
-    // ✅ Get admin ID from localStorage
-    let adminId = '';
-    if (typeof window !== 'undefined') {
-      const adminStr = localStorage.getItem('admin');
-      if (adminStr) {
-        try {
-          const admin = JSON.parse(adminStr);
-          adminId = admin.id;
-        } catch (e) {
-          console.error('Failed to parse admin data',e);
+  // ========== DELETE SINGLE AUDIT LOG ==========
+  static async deleteLog(logId: string): Promise<DeleteAuditLogResponse> {
+    try {
+      // Get admin ID from localStorage
+      let adminId = '';
+      if (typeof window !== 'undefined') {
+        const adminStr = localStorage.getItem('adminData');
+        if (adminStr) {
+          try {
+            const admin = JSON.parse(adminStr);
+            adminId = admin.id;
+          } catch (e) {
+            console.error('Failed to parse admin data', e);
+          }
         }
       }
+      
+      const response = await fetch(`${API_URL}/api/admin/audit/${logId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: await getHeaders(true),
+        body: JSON.stringify({ adminId })
+      });
+      
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('Error deleting audit log:', error);
+      return { 
+        success: false, 
+        message: 'Network error while deleting audit log' 
+      };
     }
-    
-    const response = await fetch(`${API_URL}/api/admin/audit/${logId}`, {
-      method: 'DELETE',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ adminId }) // ✅ Send adminId in body
-    });
-    
-    const result = await response.json();
-    return result;
-  } catch (error) {
-    console.error('Error deleting audit log:', error);
-    return { 
-      success: false, 
-      message: 'Network error while deleting audit log' 
-    };
   }
-}
 }

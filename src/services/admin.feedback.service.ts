@@ -1,5 +1,8 @@
-// services/admin.feedback.service.ts - COMPLETE WITH PROPER TYPES
+// services/admin.feedback.service.ts - COMPLETE WITH AUTH HEADER
 const API_URL = import.meta.env.VITE_API_URL;
+
+// Helper to get token
+const getToken = () => localStorage.getItem('adminAccessToken');
 
 export interface FeedbackUser {
   id: string;
@@ -84,10 +87,16 @@ export interface DeleteResponse {
 
 class AdminFeedbackServiceClass {
   private static async getHeaders(withJsonContent: boolean = true): Promise<HeadersInit> {
+    const token = getToken();
     const headers: HeadersInit = {};
     
     if (withJsonContent) {
       headers['Content-Type'] = 'application/json';
+    }
+    
+    // ✅ ADD AUTHORIZATION HEADER
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
     
     return headers;
@@ -246,41 +255,40 @@ class AdminFeedbackServiceClass {
     }
   }
 
-// ========== GET FILTERED FEEDBACK STATS ==========
-static async getFilteredFeedbackStats(filters?: { status?: string, type?: string, search?: string }): Promise<FeedbackStatsResponse> {
-  try {
-    const params = new URLSearchParams();
-    if (filters?.status) params.append('status', filters.status);
-    if (filters?.type) params.append('type', filters.type);
-    if (filters?.search) params.append('search', filters.search);
+  // ========== GET FILTERED FEEDBACK STATS ==========
+  static async getFilteredFeedbackStats(filters?: { status?: string, type?: string, search?: string }): Promise<FeedbackStatsResponse> {
+    try {
+      const params = new URLSearchParams();
+      if (filters?.status) params.append('status', filters.status);
+      if (filters?.type) params.append('type', filters.type);
+      if (filters?.search) params.append('search', filters.search);
 
-    const url = `${API_URL}/api/admin/feedback/stats/filtered${params.toString() ? `?${params}` : ''}`;
-    console.log('📥 Fetching filtered stats:', url);
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      credentials: 'include',
-      headers: await this.getHeaders()
-    });
+      const url = `${API_URL}/api/admin/feedback/stats/filtered${params.toString() ? `?${params}` : ''}`;
+      console.log('📥 Fetching filtered stats:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+        headers: await this.getHeaders()
+      });
 
-    const result = await response.json();
-    console.log('📦 Filtered stats response:', result);
-    
-    return {
-      success: result.success || false,
-      message: result.message || 'Unknown response',
-      data: result.data
-    };
+      const result = await response.json();
+      console.log('📦 Filtered stats response:', result);
+      
+      return {
+        success: result.success || false,
+        message: result.message || 'Unknown response',
+        data: result.data
+      };
 
-  } catch (error) {
-    console.error('❌ Error fetching filtered stats:', error);
-    return {
-      success: false,
-      message: 'Failed to fetch filtered stats'
-    };
+    } catch (error) {
+      console.error('❌ Error fetching filtered stats:', error);
+      return {
+        success: false,
+        message: 'Failed to fetch filtered stats'
+      };
+    }
   }
-}
-
 }
 
 export const AdminFeedbackService = AdminFeedbackServiceClass;

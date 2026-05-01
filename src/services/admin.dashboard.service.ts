@@ -1,6 +1,9 @@
 // services/admin.dashboard.service.ts
 const API_URL = import.meta.env.VITE_API_URL;
 
+// Add this helper
+const getToken = () => localStorage.getItem('adminAccessToken');
+
 export interface DashboardStats {
   users: {
     total: number;
@@ -57,13 +60,12 @@ export interface DashboardResponse {
   data?: DashboardStats;
 }
 
-// 👇 FIXED: No more 'any' type
 export interface ActivityLog {
   id: string;
   action: string;
   adminId: string;
   targetUserId?: string;
-  details?: Record<string, unknown> | null; // 👈 CHANGED FROM 'any'
+  details?: Record<string, unknown> | null;
   ipAddress?: string;
   userAgent?: string;
   createdAt: string;
@@ -94,9 +96,16 @@ export interface ActivityResponse {
 
 class AdminDashboardServiceClass {
   private static async getHeaders(): Promise<HeadersInit> {
-    return {
+    const token = getToken();
+    const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
+    
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    return headers;
   }
 
   // ========== GET DASHBOARD STATS ==========

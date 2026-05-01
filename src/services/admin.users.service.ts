@@ -1,6 +1,8 @@
-// services/admin.users.service.ts - FRONTEND (FIXED)
-
+// services/admin.users.service.ts - WITH AUTH HEADER
 const API_URL = import.meta.env.VITE_API_URL;
+
+// Helper to get token
+const getToken = () => localStorage.getItem('adminAccessToken');
 
 export interface User {
   id: string;
@@ -15,20 +17,19 @@ export interface User {
   lastLoginAt?: string;
   groupsCount: number;
   tasksCompleted: number;
-  isGroupAdmin?: boolean; // Add this flag
+  isGroupAdmin?: boolean;
 }
 
 export interface UserStats {
   total: number;
   active: number;
   suspended: number;
-  groupAdmins: number;  // This is the count of group admins
-  banned: number;       // Add this to match backend
-  byRole?: {            // Optional, if backend returns it
+  groupAdmins: number;
+  banned: number;
+  byRole?: {
     GROUP_ADMIN: number;
     USER: number;
   };
-  // Legacy fields (keep for compatibility)
   admins?: number;
   newToday?: number;
   newThisWeek?: number;
@@ -98,10 +99,16 @@ export interface UserDetailsResponse {
 
 class AdminUsersServiceClass {
   private static async getHeaders(withJsonContent: boolean = true): Promise<HeadersInit> {
+    const token = getToken();
     const headers: HeadersInit = {};
     
     if (withJsonContent) {
       headers['Content-Type'] = 'application/json';
+    }
+    
+    // ✅ ADD AUTHORIZATION HEADER
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
     
     return headers;
@@ -184,7 +191,6 @@ class AdminUsersServiceClass {
       
       // Transform the response to match frontend expectations if needed
       if (result.success && result.data) {
-        // Ensure groupAdmins is present
         if (result.data.groupAdmins === undefined && result.data.admins !== undefined) {
           result.data.groupAdmins = result.data.admins;
         }

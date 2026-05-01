@@ -1,4 +1,8 @@
+// services/admin.notifications.service.ts - WITH AUTH HEADER
 const API_URL = import.meta.env.VITE_API_URL;
+
+// Helper to get token
+const getToken = () => localStorage.getItem('adminAccessToken');
 
 export interface NotificationData {
   [key: string]: string | number | boolean | null | undefined | NotificationData | NotificationData[];
@@ -65,10 +69,16 @@ export interface BulkActionResponse {
 
 class AdminNotificationsServiceClass {
   private static async getHeaders(withJsonContent: boolean = true): Promise<HeadersInit> {
+    const token = getToken();
     const headers: HeadersInit = {};
     
     if (withJsonContent) {
       headers['Content-Type'] = 'application/json';
+    }
+    
+    // ✅ ADD AUTHORIZATION HEADER
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
     
     return headers;
