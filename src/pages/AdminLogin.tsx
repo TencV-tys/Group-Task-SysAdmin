@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '../hooks/useAdminAuth';
 import LoadingScreen from '../components/LoadingScreen';
 import './styles/AdminLogin.css';
+// ✅ Import logo from assets
+import gtLogo from '../assets/GTRLOGO.jpeg';
 
 export default function AdminLoginScreen() {
   const [email, setEmail] = useState('');
@@ -89,13 +91,8 @@ export default function AdminLoginScreen() {
 
     setIsSubmitting(true);
     
-    // Option 1: If you need to use the result for something
     const result = await login(email, password);
     
-    // Option 2: If you don't need the result, just call login without storing
-    // await login(email, password);
-    
-    // Option 3: If you want to log the result for debugging
     if (!result.success) {
       console.log('Login failed:', result.message);
     }
@@ -131,24 +128,12 @@ export default function AdminLoginScreen() {
       <div className="admin-login-card">
         <div className="admin-login-header">
           <div className="admin-logo">
+            {/* ✅ Use imported image */}
             <img 
-              src="/assets/GTRLOGO.jpeg" 
+              src={gtLogo} 
               alt="GroupTask Logo" 
               className="admin-logo-image"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                target.style.display = 'none';
-                const fallback = target.nextElementSibling;
-                if (fallback) (fallback as HTMLElement).style.display = 'flex';
-              }}
             />
-            <div className="admin-logo-fallback" style={{ display: 'none' }}>
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                <path d="M12 2L2 7L12 12L22 7L12 2Z" />
-                <path d="M2 17L12 22L22 17" />
-                <path d="M2 12L12 17L22 12" />
-              </svg>
-            </div>
           </div>
           <h1 className="admin-login-title">System Admin</h1>
           <p className="admin-login-subtitle">Sign in to manage the platform</p>

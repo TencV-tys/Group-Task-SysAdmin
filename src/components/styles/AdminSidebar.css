@@ -96,6 +96,7 @@
 .admin-sidebar.collapsed .logo-image-wrapper {
   width: 36px;
   height: 36px;
+  border-radius: 18px;
 }
 /* Notifications badge - Blue/Info */
 .nav-badge.info {
