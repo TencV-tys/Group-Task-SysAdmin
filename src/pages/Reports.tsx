@@ -12,9 +12,9 @@ import {
   faClock, 
   faSearch,
   faFilter,
-  faEye,
+  faEye,  
   faCheck,
-  faTimes,
+  faTimes, 
   faSpinner, 
   faExclamationTriangle,
   faChevronLeft,
@@ -538,7 +538,7 @@ const Reports: React.FC = () => {
   };
 
   if (loading && !refreshing && reports.length === 0) {
-    return <LoadingScreen message="Loading reports..." />;
+    return <LoadingScreen message="Loading reports..." fullScreen={true} />;
   }
 
   return (
