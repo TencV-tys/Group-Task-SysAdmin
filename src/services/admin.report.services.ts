@@ -1,4 +1,5 @@
-// services/admin.reports.service.ts - WITH AUTH HEADER
+// services/admin.reports.service.ts - COMPLETE WITH PHOTO SUPPORT
+
 const API_URL = import.meta.env.VITE_API_URL;
 
 // Helper to get token
@@ -8,6 +9,8 @@ export interface Report {
   id: string;
   type: string;
   description: string;
+  photoUrl: string | null;  // 👈 ADD PHOTO URL
+  hasPhoto: boolean;        // 👈 ADD HAS PHOTO FLAG
   status: 'PENDING' | 'REVIEWING' | 'RESOLVED' | 'DISMISSED';
   createdAt: string;
   resolvedAt: string | null;
@@ -86,6 +89,7 @@ export interface ReportStatistics {
     resolved: number;
     dismissed: number;
     resolutionRate: number;
+    withPhoto: number;  // 👈 ADD WITH PHOTO COUNT
   };
   byType: Array<{
     type: string;
@@ -127,7 +131,6 @@ class AdminReportsServiceClass {
       headers['Content-Type'] = 'application/json';
     }
     
-    // ✅ ADD AUTHORIZATION HEADER
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
@@ -151,7 +154,7 @@ class AdminReportsServiceClass {
       const response = await fetch(url, {
         method: 'GET',
         credentials: 'include',
-        headers: await this.getHeaders()
+        headers: await this.getHeaders(false) // No JSON content type for GET
       });
 
       const result = await response.json();
@@ -176,7 +179,7 @@ class AdminReportsServiceClass {
       const response = await fetch(`${API_URL}/api/admin/reports/${reportId}`, {
         method: 'GET',
         credentials: 'include',
-        headers: await this.getHeaders()
+        headers: await this.getHeaders(false)
       });
 
       const result = await response.json();
@@ -231,7 +234,7 @@ class AdminReportsServiceClass {
       const response = await fetch(`${API_URL}/api/admin/reports/statistics`, {
         method: 'GET',
         credentials: 'include',
-        headers: await this.getHeaders()
+        headers: await this.getHeaders(false)
       });
 
       const result = await response.json();
@@ -256,7 +259,7 @@ class AdminReportsServiceClass {
       const response = await fetch(`${API_URL}/api/admin/reports/${reportId}?hardDelete=${hardDelete}`, {
         method: 'DELETE',
         credentials: 'include',
-        headers: await this.getHeaders()
+        headers: await this.getHeaders(false)
       });
 
       const result = await response.json();
@@ -295,6 +298,36 @@ class AdminReportsServiceClass {
       return {
         success: false,
         message: 'Failed to bulk delete reports'
+      };
+    }
+  }
+
+  // ========== BULK UPDATE REPORTS ==========
+  static async bulkUpdateReports(
+    reportIds: string[], 
+    status: string, 
+    resolutionNotes?: string
+  ): Promise<{ success: boolean; message: string; results?: { totalCount: number; successCount: number; failedIds: string[] } }> {
+    try {
+      console.log('📤 Bulk updating reports:', reportIds.length, 'status:', status);
+      
+      const response = await fetch(`${API_URL}/api/admin/reports/bulk-update`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: await this.getHeaders(true),
+        body: JSON.stringify({ reportIds, status, resolutionNotes })
+      });
+
+      const result = await response.json();
+      console.log('📦 Bulk update response:', result);
+      
+      return result;
+
+    } catch (error) {
+      console.error('❌ Error bulk updating reports:', error);
+      return {
+        success: false,
+        message: 'Failed to bulk update reports'
       };
     }
   }

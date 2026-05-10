@@ -1,4 +1,4 @@
-// pages/Reports.tsx - COMPLETE FULLY WORKING VERSION
+// pages/Reports.tsx - COMPLETE WITH PHOTO EVIDENCE SUPPORT
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Report, ReportFilters } from '../services/admin.report.services';
@@ -22,8 +22,36 @@ import {
   faRedoAlt,
   faCalendarAlt,
   faTrash,
+  faImage,
+  faFileImage,
+  faExternalLinkAlt,
 } from '@fortawesome/free-solid-svg-icons';
 import './styles/Reports.css';
+
+// Photo Modal Component
+const PhotoModal: React.FC<{ photoUrl: string; onClose: () => void }> = ({ photoUrl, onClose }) => {
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
+
+  return (
+    <div className="photo-modal-overlay" onClick={onClose}>
+      <div className="photo-modal-content" onClick={(e) => e.stopPropagation()}>
+        <button className="photo-modal-close" onClick={onClose}>×</button>
+        <img src={photoUrl} alt="Report evidence" className="photo-modal-image" />
+        <div className="photo-modal-footer">
+          <a href={photoUrl} target="_blank" rel="noopener noreferrer" className="photo-modal-link">
+            <FontAwesomeIcon icon={faExternalLinkAlt} /> Open in new tab
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface ReportStatistics {
   overview: {
@@ -33,6 +61,7 @@ interface ReportStatistics {
     resolved: number;
     dismissed: number;
     resolutionRate: number;
+    withPhoto?: number;
   };
   byType: Array<{
     type: string;
@@ -63,6 +92,8 @@ interface NewReportSocketData {
   description: string;
   createdAt: string;
   status: string;
+  photoUrl?: string;
+  hasPhoto?: boolean;
 }
 
 interface ReportStatusSocketData {
@@ -137,6 +168,8 @@ const Reports: React.FC = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [selectedPhotoUrl, setSelectedPhotoUrl] = useState<string | null>(null);
   
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
@@ -249,6 +282,11 @@ const Reports: React.FC = () => {
     setFilters(prev => ({ ...prev, search: undefined, page: 1 }));
   };
 
+  const handleViewPhoto = (photoUrl: string) => {
+    setSelectedPhotoUrl(photoUrl);
+    setShowPhotoModal(true);
+  };
+
   useEffect(() => {
     const handleNewReport = (...args: unknown[]) => {
       const data = args[0] as NewReportSocketData;
@@ -257,7 +295,7 @@ const Reports: React.FC = () => {
         pendingToastRef.current = {
           id: data.reportId,
           title: '🚨 New Report',
-          message: `${data.reporterName} reported "${data.groupName}" for ${data.reportType?.replace(/_/g, ' ') || 'unknown'}`
+          message: `${data.reporterName} reported "${data.groupName}" for ${data.reportType?.replace(/_/g, ' ') || 'unknown'}${data.hasPhoto ? ' 📸' : ''}`
         };
       }
       refreshAllData();
@@ -333,7 +371,6 @@ const Reports: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ CRITICAL FIX: Remove fetchReports from dependencies
   useEffect(() => {
     if (initialLoadDoneRef.current && isMountedRef.current) {
       fetchReports();
@@ -539,10 +576,15 @@ const Reports: React.FC = () => {
 
   if (loading && !refreshing && reports.length === 0) {
     return <LoadingScreen message="Loading reports..." fullScreen={true} />;
-  }
+  } 
 
   return (
     <div className="reports-page">
+      {/* Photo Modal */}
+      {showPhotoModal && selectedPhotoUrl && (
+        <PhotoModal photoUrl={selectedPhotoUrl} onClose={() => setShowPhotoModal(false)} />
+      )}
+
       {toastMessage && (
         <div className="reports-toast" key={toastMessage.id}>
           <div className="toast-content">
@@ -569,7 +611,13 @@ const Reports: React.FC = () => {
         <div className="stats-grid">
           <div className={`stat-card total ${filters.status === 'ALL' ? 'active' : ''}`} onClick={() => handleStatClick('ALL')} style={{ cursor: 'pointer' }}>
             <div className="stat-icon"><FontAwesomeIcon icon={faFlag} /></div>
-            <div className="stat-content"><span className="stat-value">{stats.overview.total}</span><span className="stat-label">Total Reports</span></div>
+            <div className="stat-content">
+              <span className="stat-value">{stats.overview.total}</span>
+              <span className="stat-label">Total Reports</span>
+              {stats.overview.withPhoto !== undefined && stats.overview.withPhoto > 0 && (
+                <span className="stat-badge">📸 {stats.overview.withPhoto} with photo</span>
+              )}
+            </div>
             {filters.status === 'ALL' && <div className="stat-active-indicator" />}
           </div>
           <div className={`stat-card pending ${filters.status === 'PENDING' ? 'active' : ''}`} onClick={() => handleStatClick('PENDING')} style={{ cursor: 'pointer' }}>
@@ -661,6 +709,7 @@ const Reports: React.FC = () => {
             <table className="reports-table">
               <thead>
                 <tr>
+                  <th>Photo</th>
                   <th>Status</th>
                   <th>Type</th>
                   <th>Group</th>
@@ -677,6 +726,23 @@ const Reports: React.FC = () => {
                     onClick={() => handleViewDetails(report)} 
                     className={`report-row ${selectedRowId === report.id ? 'selected' : ''}`}
                   >
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {(report as any).hasPhoto || report.photoUrl ? (
+                        <button 
+                          className="photo-preview-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewPhoto(report.photoUrl || (report as any).photoUrl);
+                          }}
+                          title="View photo evidence"
+                        >
+                          <FontAwesomeIcon icon={faImage} />
+                          <span>Photo</span>
+                        </button>
+                      ) : (
+                        <span className="no-photo-badge">No photo</span>
+                      )}
+                    </td>
                     <td>
                       <span className={`status-badge ${getStatusBadgeClass(report.status)}`}>
                         <FontAwesomeIcon icon={getStatusIcon(report.status)} />
@@ -808,6 +874,28 @@ const Reports: React.FC = () => {
                   <span>{formatDate(selectedReport.createdAt)}</span>
                 </div>
               </div>
+
+              {/* Photo Evidence Section */}
+              {(selectedReport as any).hasPhoto || selectedReport.photoUrl ? (
+                <div className="details-section">
+                  <h3>Photo Evidence</h3>
+                  <div className="photo-evidence-container">
+                    <img 
+                      src={selectedReport.photoUrl || (selectedReport as any).photoUrl}
+                      alt="Report evidence"
+                      className="evidence-thumbnail"
+                      onClick={() => handleViewPhoto(selectedReport.photoUrl || (selectedReport as any).photoUrl)}
+                    />
+                    <button 
+                      className="view-full-photo-btn"
+                      onClick={() => handleViewPhoto(selectedReport.photoUrl || (selectedReport as any).photoUrl)}
+                    >
+                      <FontAwesomeIcon icon={faExternalLinkAlt} /> View Full Size
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="details-section">
                 <h3>Group Information</h3>
                 <div className="detail-row">
@@ -932,6 +1020,9 @@ const Reports: React.FC = () => {
                 ⚠️ <strong>Warning: This action is PERMANENT and cannot be undone!</strong>
               </p>
               <p>Are you sure you want to permanently delete this report?</p>
+              {(reportToDelete as any).hasPhoto && (
+                <p className="photo-warning">📸 This report has a photo that will also be deleted.</p>
+              )}
             </div>
             <div className="modal-footer">
               <button className="modal-cancel" onClick={() => setShowDeleteModal(false)}>Cancel</button>
