@@ -23,7 +23,6 @@ import {
   faCalendarAlt,
   faTrash,
   faImage,
-  faFileImage,
   faExternalLinkAlt,
 } from '@fortawesome/free-solid-svg-icons';
 import './styles/Reports.css';
@@ -727,12 +726,12 @@ const Reports: React.FC = () => {
                     className={`report-row ${selectedRowId === report.id ? 'selected' : ''}`}
                   >
                     <td onClick={(e) => e.stopPropagation()}>
-                      {(report as any).hasPhoto || report.photoUrl ? (
+                      {report.hasPhoto || report.photoUrl ? (
                         <button 
                           className="photo-preview-btn"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleViewPhoto(report.photoUrl || (report as any).photoUrl);
+                            handleViewPhoto(report.photoUrl || report.photoUrl);
                           }}
                           title="View photo evidence"
                         >
@@ -876,19 +875,19 @@ const Reports: React.FC = () => {
               </div>
 
               {/* Photo Evidence Section */}
-              {(selectedReport as any).hasPhoto || selectedReport.photoUrl ? (
+              {selectedReport.hasPhoto || selectedReport.photoUrl ? (
                 <div className="details-section">
                   <h3>Photo Evidence</h3>
                   <div className="photo-evidence-container">
                     <img 
-                      src={selectedReport.photoUrl || (selectedReport as any).photoUrl}
+                      src={selectedReport.photoUrl || selectedReport.photoUrl}
                       alt="Report evidence"
                       className="evidence-thumbnail"
-                      onClick={() => handleViewPhoto(selectedReport.photoUrl || (selectedReport as any).photoUrl)}
+                      onClick={() => handleViewPhoto(selectedReport.photoUrl || selectedReport .photoUrl)}
                     />
                     <button 
                       className="view-full-photo-btn"
-                      onClick={() => handleViewPhoto(selectedReport.photoUrl || (selectedReport as any).photoUrl)}
+                      onClick={() => handleViewPhoto(selectedReport.photoUrl || selectedReport.photoUrl)}
                     >
                       <FontAwesomeIcon icon={faExternalLinkAlt} /> View Full Size
                     </button>
@@ -1020,7 +1019,7 @@ const Reports: React.FC = () => {
                 ⚠️ <strong>Warning: This action is PERMANENT and cannot be undone!</strong>
               </p>
               <p>Are you sure you want to permanently delete this report?</p>
-              {(reportToDelete as any).hasPhoto && (
+              {reportToDelete.hasPhoto && (
                 <p className="photo-warning">📸 This report has a photo that will also be deleted.</p>
               )}
             </div>
